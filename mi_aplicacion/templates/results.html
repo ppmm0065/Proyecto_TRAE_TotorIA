@@ -1,0 +1,281 @@
+{% extends 'base.html' %}
+
+{% block title %}Resultados del Análisis: {{ filename }}{% endblock %}
+
+{% block panel_left_content %}
+    {# --- Contenido del Panel Izquierdo --- #}
+    <h2 class="text-xl font-semibold text-slate-800 mb-2">Resultados Para</h2>
+    <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <p class="text-sm text-slate-600">Archivo analizado:</p>
+        <p class="font-semibold text-indigo-700 break-words">{{ filename }}</p>
+    </div>
+    {# --- INICIO: BLOQUE DE CONSUMO DE SESIÓN --- #}
+    {% if session.consumo_sesion is defined %}
+    <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <h3 class="text-md font-semibold text-slate-700 mb-2">Consumo de la Sesión</h3>
+        <div class="text-sm space-y-1 text-slate-600">
+            <div class="flex justify-between items-center">
+                <span><i class="fas fa-coins fa-fw mr-2 text-yellow-500"></i>Total Tokens:</span>
+                <strong id="session-total-tokens" class="font-mono text-slate-800">{{ session.consumo_sesion.total_tokens|int }}</strong>
+            </div>
+            <div class="flex justify-between items-center">
+                <span><i class="fas fa-dollar-sign fa-fw mr-2 text-green-500"></i>Costo Estimado:</span>
+                <strong id="session-total-cost" class="font-mono text-slate-800">US$ {{ "{:,.6f}".format(session.consumo_sesion.total_cost) }}</strong>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{# --- FIN: BLOQUE DE CONSUMO DE SESIÓN --- #}
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Acciones Inmediatas</h3>
+    <ul class="space-y-2 text-sm mb-6">
+        <li>
+            <a href="{{ url_for('main.analyze_page') }}"
+               class="block w-full text-left bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2.5 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105">
+               <i class="fas fa-comment-dots mr-2"></i> Hacer otra pregunta
+            </a>
+        </li>
+        <li>
+            <a href="{{ url_for('main.index') }}"
+               class="block w-full text-left mt-3 border border-slate-300 hover:bg-slate-100 text-slate-600 font-semibold py-2.5 px-4 rounded-lg transition duration-300 ease-in-out">
+               <i class="fas fa-file-upload mr-2"></i> Cargar Nuevo Archivo
+            </a>
+        </li>
+    </ul>
+
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Exportar (Próximamente)</h3>
+    <ul class="space-y-2 text-sm">
+        <li>
+            <a href="#" class="text-slate-400 cursor-not-allowed flex items-center">
+                <i class="fas fa-file-pdf mr-2 w-4 text-center"></i> Exportar Análisis (PDF)
+            </a>
+        </li>
+        <li>
+            <a href="#" class="text-slate-400 cursor-not-allowed flex items-center">
+                <i class="fas fa-file-alt mr-2 w-4 text-center"></i> Exportar Chat (TXT)
+            </a>
+        </li>
+    </ul>
+{% endblock panel_left_content %}
+
+{% block panel_center_content %}
+    {# --- Contenido del Panel Central --- #}
+    <div class="flex flex-col h-full">
+        <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Resultados del Análisis</h1>
+
+        {# Caja con prompt y respuesta #}
+        <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 mb-6">
+            <p class="text-base text-slate-600 mb-1">
+                Archivo: <strong class="font-semibold text-indigo-700">{{ filename }}</strong>
+            </p>
+            <hr class="my-3">
+
+            <h2 class="text-lg font-semibold text-slate-700 mb-1">Tu Pregunta/Instrucción:</h2>
+            <div class="prompt-box bg-slate-50 border border-slate-200 rounded p-3 mb-4">
+                 <pre class="text-sm text-slate-700 whitespace-pre-wrap break-words">{{ prompt }}</pre>
+            </div>
+
+            <h2 class="text-lg font-semibold text-slate-700 mb-1">Resumen de Gemini:</h2>
+            <div class="result-box bg-teal-50 border border-teal-200 rounded p-3 prose prose-sm max-w-none">
+                 {{ analysis | safe }}
+            </div>
+            {# --- INICIO: NUEVO BLOQUE DE INFORMACIÓN DE CONSUMO --- #}
+            {% if analysis_result and analysis_result.total_tokens > 0 %}
+            <div class="mt-4 p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                <h3 class="text-sm font-semibold text-slate-700 mb-2">Detalles del Consumo (Consulta Actual)</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600">
+                    <div class="font-mono p-2 rounded bg-white border">
+                        <span class="block text-slate-500">Tokens Subida</span>
+                        <strong class="text-lg text-slate-800">{{ analysis_result.input_tokens|int }}</strong>
+                    </div>
+                    <div class="font-mono p-2 rounded bg-white border">
+                        <span class="block text-slate-500">Tokens Bajada</span>
+                        <strong class="text-lg text-slate-800">{{ analysis_result.output_tokens|int }}</strong>
+                    </div>
+                     <div class="font-mono p-2 rounded bg-white border col-span-2">
+                        <span class="block text-slate-500">Costo Total Consulta</span>
+                        <strong class="text-lg text-green-700">US$ {{ "{:,.6f}".format(analysis_result.total_cost) }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {# --- FIN: NUEVO BLOQUE DE INFORMACIÓN DE CONSUMO --- #}
+        </div>
+
+        {# Sección de Agregar Seguimiento MODIFICADA #}
+        <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 mb-6">
+            <h2 class="text-xl font-semibold text-slate-800 mb-3">Agregar Comentario de Seguimiento</h2>
+            <form action="{{ url_for('main.add_follow_up') }}" method="post" id="followUpForm">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                    <div>
+                        <label for="related_entity_type" class="block text-sm font-medium text-slate-700 mb-1">Asociar a (Tipo):</label>
+                        <select id="related_entity_type" name="related_entity_type"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <option value="none" selected>General (No específico)</option>
+                            <option value="alumno">Alumno</option>
+                            <option value="curso">Curso</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="related_entity_name" class="block text-sm font-medium text-slate-700 mb-1">Nombre de Entidad (si aplica):</label>
+                        <input type="text" id="related_entity_name" name="related_entity_name"
+                               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                               placeholder="Nombre del alumno o curso..." disabled>
+                        <div id="entity_name_suggestions" class="mt-1 border border-gray-300 rounded-md bg-white max-h-32 overflow-y-auto z-20 shadow-lg" style="display: none;">
+                            {# Sugerencias se cargarán vía JS #}
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="follow_up_comment" class="sr-only">Comentario:</label>
+                    <textarea id="follow_up_comment" name="follow_up_comment" rows="4"
+                              class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out shadow-sm sm:text-sm"
+                              placeholder="Escribe aquí tus notas, acciones tomadas, próximos pasos..."
+                              required></textarea>
+                </div>
+                <div class="text-right">
+                    <button type="submit"
+                            class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg text-sm transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        <i class="fas fa-save mr-1"></i> Guardar Seguimiento
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        {# Historial de Seguimiento #}
+        <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200">
+            <h2 class="text-xl font-semibold text-slate-800 mb-3">Historial de Seguimiento para {{ filename }}</h2>
+            {% if follow_ups %}
+                <div class="space-y-4 max-h-60 overflow-y-auto border border-slate-200 rounded p-4 bg-slate-50 custom-scrollbar">
+                    {% for followup in follow_ups %}
+                        <div class="pb-2 border-b border-slate-200 last:border-b-0">
+                            <p class="text-xs text-slate-500 mb-1">
+                                <i class="far fa-calendar-alt mr-1"></i> {{ followup['timestamp'] }}
+                                {% if followup.related_entity_type and followup.related_entity_name %}
+                                    <span class="mx-1">|</span>
+                                    <i class="fas fa-user-tag mr-1"></i> 
+                                    <span class="font-medium">{{ followup.related_entity_type|capitalize }}:</span> {{ followup.related_entity_name }}
+                                {% elif followup.follow_up_type != 'general_comment' and followup.follow_up_type != 'advanced_chat_note' and followup.follow_up_type != 'contextual_note' %}
+                                    {# Only show 'General' if it's truly a general comment without entity, or one of the specific non-entity types #}
+                                {% else %}
+                                     <span class="mx-1">|</span> <span class="italic text-slate-400">General</span>
+                                {% endif %}
+                            </p>
+                            <p class="text-sm text-slate-700 whitespace-pre-wrap break-words">
+                                {{ followup['follow_up_comment'] }}
+                            </p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-sm text-slate-500 italic">No hay comentarios de seguimiento registrados para este archivo todavía.</p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock panel_center_content %}
+
+{% block panel_right_content %}
+    {{ super() }}
+{% endblock panel_right_content %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Results page dashboard loaded.");
+
+            const entityTypeSelect = document.getElementById('related_entity_type');
+            const entityNameInput = document.getElementById('related_entity_name');
+            const entityNameSuggestions = document.getElementById('entity_name_suggestions');
+
+            const studentNames = {{ student_names_for_select|tojson|safe }};
+            const courseNames = {{ course_names_for_select|tojson|safe }};
+            let currentSuggestions = [];
+            let debounceTimer;
+
+            function highlightMatch(text, term) {
+                if (!term || !text) return text;
+                const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                try {
+                    const regex = new RegExp(`(${escapedTerm})`, 'gi');
+                    return text.replace(regex, '<strong class="font-bold text-indigo-600">$1</strong>');
+                } catch (e) { return text; }
+            }
+
+            function updateSuggestions(searchTerm) {
+                entityNameSuggestions.innerHTML = '';
+                if (!searchTerm) {
+                    entityNameSuggestions.style.display = 'none';
+                    return;
+                }
+
+                const selectedType = entityTypeSelect.value;
+                let sourceArray = [];
+                if (selectedType === 'alumno') {
+                    sourceArray = studentNames;
+                } else if (selectedType === 'curso') {
+                    sourceArray = courseNames;
+                }
+
+                currentSuggestions = sourceArray.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+                if (currentSuggestions.length > 0) {
+                    currentSuggestions.slice(0, 10).forEach(name => { // Limit to 10 suggestions
+                        const suggestionDiv = document.createElement('div');
+                        suggestionDiv.classList.add('p-2', 'text-sm', 'cursor-pointer', 'hover:bg-indigo-50');
+                        suggestionDiv.innerHTML = highlightMatch(name, searchTerm);
+                        suggestionDiv.addEventListener('click', function() {
+                            entityNameInput.value = name;
+                            entityNameSuggestions.style.display = 'none';
+                        });
+                        entityNameSuggestions.appendChild(suggestionDiv);
+                    });
+                    entityNameSuggestions.style.display = 'block';
+                } else {
+                    entityNameSuggestions.style.display = 'none';
+                }
+            }
+
+            if (entityTypeSelect && entityNameInput && entityNameSuggestions) {
+                entityTypeSelect.addEventListener('change', function() {
+                    entityNameInput.value = ''; // Clear name when type changes
+                    if (this.value === 'none') {
+                        entityNameInput.disabled = true;
+                        entityNameInput.placeholder = 'Nombre del alumno o curso...';
+                        entityNameSuggestions.style.display = 'none';
+                    } else {
+                        entityNameInput.disabled = false;
+                        entityNameInput.placeholder = (this.value === 'alumno') ? 'Buscar nombre del alumno...' : 'Buscar nombre del curso...';
+                        updateSuggestions(entityNameInput.value.trim()); // Update suggestions if there's existing text
+                    }
+                });
+
+                entityNameInput.addEventListener('input', function() {
+                    clearTimeout(debounceTimer);
+                    const searchTerm = this.value.trim();
+                    debounceTimer = setTimeout(() => {
+                        updateSuggestions(searchTerm);
+                    }, 300);
+                });
+
+                entityNameInput.addEventListener('focus', function() {
+                    if (entityTypeSelect.value !== 'none' && this.value.trim().length > 0) {
+                         updateSuggestions(this.value.trim());
+                    } else if (entityTypeSelect.value !== 'none' && currentSuggestions.length > 0) {
+                         entityNameSuggestions.style.display = 'block';
+                    }
+                });
+
+                // Hide suggestions when clicking outside
+                document.addEventListener('click', function(event) {
+                    if (!entityNameInput.contains(event.target) && !entityNameSuggestions.contains(event.target)) {
+                        entityNameSuggestions.style.display = 'none';
+                    }
+                });
+            }
+        });
+    </script>
+{% endblock scripts %}

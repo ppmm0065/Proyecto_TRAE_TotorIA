@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+
+{% block title %}
+    Chat Avanzado con IA - Colegio Nueva Esperanza 
+{% endblock %}
+
+{% block panel_left_content %}
+    {# Contenido del Panel Izquierdo - Navegación y Contexto #}
+    <h2 class="text-xl font-semibold text-slate-800 mb-2">Chat Avanzado</h2>
+    <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <p class="text-sm text-slate-600">Institución:</p>
+        <p class="font-semibold text-indigo-700 break-words">Colegio Nueva Esperanza</p>
+        <p class="text-sm text-slate-600 mt-1">Archivo de datos:</p>
+        <p class="font-semibold text-indigo-700 break-words text-xs">{{ session.get('uploaded_filename', 'No hay archivo cargado') }}</p>
+        {% if not session.get('uploaded_filename') %}
+            <p class="text-xs text-red-600 mt-1">Por favor, carga un archivo CSV desde la página principal para usar el chat.</p>
+        {% endif %}
+    </div>
+
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Navegación</h3>
+    <ul class="space-y-2 text-sm">
+        <li>
+            <a href="{{ url_for('main.index') }}" class="text-slate-600 hover:text-indigo-600 hover:font-semibold flex items-center">
+                <i class="fas fa-arrow-left mr-2 w-4 text-center"></i> Volver al Dashboard Principal
+            </a>
+        </li>
+    </ul>
+{% endblock panel_left_content %}
+
+{% block panel_center_content %}
+<div class="flex flex-col h-full">
+    <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">
+        Chat Avanzado sobre: <span class="text-indigo-600">Colegio Nueva Esperanza</span>
+    </h1>
+
+    {% if not session.get('uploaded_filename') %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4 mb-6" role="alert">
+            <p class="font-bold">Archivo Requerido</p>
+            <p>Para utilizar el chat avanzado, primero debes <a href="{{ url_for('main.index') }}" class="font-semibold underline hover:text-yellow-800">cargar un archivo CSV</a> en el dashboard principal.</p>
+        </div>
+    {% else %}
+        {# SECCIÓN DE CHAT CON GEMINI #}
+        <div id="advanced-chat-interface" class="flex flex-col flex-grow">
+            <div id="advanced-chat-history" class="flex-grow overflow-y-auto mb-4 p-4 border border-slate-300 rounded-lg bg-slate-50 custom-scrollbar space-y-4 min-h-[300px]">
+                <p class="text-sm text-slate-500 italic initial-chat-message">Inicia la conversación con una pregunta sobre los datos del Colegio Nueva Esperanza.</p>
+            </div>
+            <form id="advanced-chat-form" class="flex items-start gap-3 mt-auto">
+                <textarea id="advanced-chat-prompt" name="user_prompt_advanced_chat" rows="3"
+                          class="flex-grow px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-150 ease-in-out shadow-sm sm:text-sm"
+                          placeholder="Escribe tu pregunta o instrucción sobre los datos..."></textarea>
+                <button type="submit" id="send-advanced-chat-button"
+                        class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">
+                    <i class="fas fa-paper-plane"></i> Enviar
+                </button>
+            </form>
+            {# ELIMINADO: Notificación de seguimiento que estaba aquí, ya que el modal se elimina #}
+            {# <div id="advanced-follow-up-notification" class="text-xs text-green-600 mt-2 h-4"></div> #}
+        </div>
+        {# FIN SECCIÓN DE CHAT CON GEMINI #}
+    {% endif %}
+</div>
+
+{# ELIMINADO: MODAL PARA AÑADIR NOTA DE SEGUIMIENTO #}
+{# <div id="addAdvancedFollowUpModal" ...> ... </div> #}
+
+{% endblock panel_center_content %}
+
+{% block scripts %}
+    {{ super() }} 
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const uploadedFilename = {{ session.get('uploaded_filename')|tojson|safe }};
+        const advancedChatForm = document.getElementById('advanced-chat-form');
+        const advancedChatPromptInput = document.getElementById('advanced-chat-prompt');
+        const advancedChatHistoryDiv = document.getElementById('advanced-chat-history');
+        const sendAdvancedChatButton = document.getElementById('send-advanced-chat-button');
+        
+        if (!uploadedFilename) {
+            console.warn("Chat Avanzado: No hay archivo CSV cargado.");
+            if (advancedChatForm) {
+                advancedChatPromptInput.disabled = true;
+                sendAdvancedChatButton.disabled = true;
+                advancedChatPromptInput.placeholder = "Carga un archivo CSV para activar el chat.";
+            }
+        }
+
+        let currentAdvancedChatHistoryRaw = {{ advanced_chat_history|tojson|safe }};
+        if (!Array.isArray(currentAdvancedChatHistoryRaw)) {
+            currentAdvancedChatHistoryRaw = [];
+        }
+
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') return '';
+            return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        // NUEVO: Función para crear el div de información de uso
+        function createUsageInfoDiv(usageData) {
+            if (!usageData || !usageData.total_tokens) return null;
+            const cost = usageData.total_cost || 0;
+            const formattedCost = `US$ ${cost.toLocaleString('en-US', {minimumFractionDigits: 6, maximumFractionDigits: 6})}`;
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'text-xs text-slate-400 mt-2 pl-2 border-l-2 border-slate-200';
+            infoDiv.innerHTML = `
+                <span><i class="fas fa-coins fa-fw"></i> Tokens: ${usageData.input_tokens} subida + ${usageData.output_tokens} bajada = <strong>${usageData.total_tokens}</strong></span>
+                <span class="mx-2">|</span>
+                <span><i class="fas fa-dollar-sign fa-fw"></i> Costo: <strong class="font-semibold text-slate-500">${formattedCost}</strong></span>
+            `;
+            return infoDiv;
+        }
+
+        // NUEVO: Función para actualizar los totales de la sesión en la UI
+        function updateSessionTotals(sessionData) {
+            if (!sessionData) return;
+            const tokensEl = document.getElementById('session-total-tokens');
+            const costEl = document.getElementById('session-total-cost');
+            if (tokensEl) tokensEl.textContent = sessionData.total_tokens.toLocaleString('en-US');
+            if (costEl) costEl.textContent = `US$ ${sessionData.total_cost.toLocaleString('en-US', {minimumFractionDigits: 6, maximumFractionDigits: 6})}`;
+        }
+
+        function renderAdvancedChatMessage(sender, messageContent, isUserMessage, isHtmlResponse = false, usageData = null) {
+            if (!advancedChatHistoryDiv) return;
+            const initialPlaceholder = advancedChatHistoryDiv.querySelector('p.initial-chat-message');
+            if (initialPlaceholder) initialPlaceholder.remove();
+
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('mb-2'); 
+
+            const messageBubble = document.createElement('div');
+            messageBubble.classList.add('inline-block', 'text-sm', 'rounded-lg', 'px-3', 'py-2', 'shadow', 'max-w-full', 'break-words');
+
+            if (isUserMessage) {
+                messageContainer.classList.add('user-message', 'text-right');
+                messageBubble.classList.add('bg-indigo-500', 'text-white');
+                messageBubble.innerHTML = `<strong>Tú:</strong> ${escapeHtml(messageContent).replace(/\n/g, '<br>')}`;
+                messageContainer.appendChild(messageBubble);
+            } else { 
+                messageContainer.classList.add('gemini-message', 'text-left');
+                
+                if (sender === "Error") { 
+                    messageBubble.classList.add('bg-red-100', 'text-red-700');
+                    messageBubble.innerHTML = `<strong>Error:</strong> ${escapeHtml(messageContent)}`;
+                } else { 
+                    messageBubble.classList.add('bg-slate-100', 'text-slate-800', 'prose', 'prose-sm', 'max-w-none');
+                    messageBubble.innerHTML = isHtmlResponse ? messageContent : `<div class="prose prose-sm max-w-none">${escapeHtml(messageContent)}</div>`;
+                }
+                messageContainer.appendChild(messageBubble); 
+
+                // NUEVO: Añadir la información de consumo si existe
+                const usageInfoDiv = createUsageInfoDiv(usageData);
+                if (usageInfoDiv) {
+                    messageContainer.appendChild(usageInfoDiv);
+                }
+            }
+            advancedChatHistoryDiv.appendChild(messageContainer);
+            advancedChatHistoryDiv.scrollTop = advancedChatHistoryDiv.scrollHeight;
+        }
+
+        if (advancedChatHistoryDiv && currentAdvancedChatHistoryRaw.length > 0) {
+            const initialPlaceholder = advancedChatHistoryDiv.querySelector('p.initial-chat-message');
+            if (initialPlaceholder) initialPlaceholder.remove();
+            currentAdvancedChatHistoryRaw.forEach(entry => {
+                if (entry.user) renderAdvancedChatMessage("Tú", entry.user, true);
+                if (entry.gemini_html) renderAdvancedChatMessage("Gemini", entry.gemini_html, false, true);
+            });
+        }
+
+        if (advancedChatForm && uploadedFilename) {
+            advancedChatForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const userPrompt = advancedChatPromptInput.value.trim();
+                if (!userPrompt) return;
+
+                renderAdvancedChatMessage("Tú", userPrompt, true);
+                advancedChatPromptInput.value = '';
+                sendAdvancedChatButton.disabled = true;
+                sendAdvancedChatButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+                
+                fetch("{{ url_for('main.api_submit_advanced_chat') }}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', },
+                    body: JSON.stringify({ prompt: userPrompt }),
+                })
+                .then(response => {
+                    sendAdvancedChatButton.disabled = false;
+                    sendAdvancedChatButton.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || `Error del servidor: ${response.status}`) });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) { throw new Error(data.error); }
+                    // MODIFICADO: Pasar datos de consumo al renderizar y actualizar totales de sesión
+                    renderAdvancedChatMessage("Gemini", data.html_output, false, true, data);
+                    updateSessionTotals(data.consumo_sesion);
+                })
+                .catch(error => {
+                    console.error('Error en el chat avanzado:', error);
+                    renderAdvancedChatMessage("Error", error.message || "Ocurrió un error desconocido.", false, false);
+                });
+            });
+        }
+    });
+</script>
+{% endblock scripts %}

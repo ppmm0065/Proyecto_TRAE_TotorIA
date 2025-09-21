@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}
+    {{ page_title|default('Recursos de Apoyo') }}
+{% endblock %}
+
+{% block panel_left_content %}
+    <h2 class="text-xl font-semibold text-slate-800 mb-2">Recursos de Apoyo</h2>
+    <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <p class="text-sm text-slate-600">Para la Entidad:</p>
+        <p class="font-semibold text-indigo-700 break-words capitalize">{{ nombre_entidad }} ({{ tipo_entidad }})</p>
+        <p class="text-sm text-slate-600 mt-2">Basado en el Plan de Intervención del:</p>
+        <p class="font-semibold text-indigo-700 break-words">{{ fecha_emision_plan }}</p>
+        <p class="text-sm text-slate-600 mt-2">Archivo Origen:</p>
+        <p class="font-semibold text-indigo-700 break-words">{{ filename }}</p>
+    </div>
+
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Navegación</h3>
+    <ul class="space-y-2 text-sm">
+        <li>
+            <a href="{{ url_for('main.visualizar_plan_intervencion', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad, plan_ref=plan_ref) }}" class="text-slate-600 hover:text-indigo-600 hover:font-semibold flex items-center">
+                <i class="fas fa-arrow-left mr-2 w-4 text-center"></i> Volver al Plan de Intervención
+            </a>
+        </li>
+        <li>
+            <a href="{{ url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=nombre_entidad) }}" class="text-slate-600 hover:text-indigo-600 hover:font-semibold flex items-center">
+                <i class="fas fa-tachometer-alt mr-2 w-4 text-center"></i> Volver al Detalle de {{ tipo_entidad|capitalize }}
+            </a>
+        </li>
+    </ul>
+{% endblock panel_left_content %}
+
+{% block panel_center_content %}
+<div class="flex flex-col h-full">
+    <div class="flex justify-between items-start mb-6">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
+                Recursos de Apoyo Sugeridos para <span class="text-indigo-600">{{ nombre_entidad }}</span>
+            </h1>
+            <p class="text-lg font-normal text-slate-500">Basado en el Plan de Intervención del {{ fecha_emision_plan }}</p>
+        </div>
+    </div>
+
+    {% if recursos_html %}
+        {% if recursos_html.startswith("Error:") %}
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+                <p class="font-bold">Error al generar los recursos</p>
+                <p>{{ recursos_html|safe }}</p> 
+            </div>
+        {% else %}
+            <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 prose prose-sm max-w-none">
+                {{ recursos_html|safe }} 
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4 mb-6" role="alert">
+            <p class="font-bold">Información no disponible</p>
+            <p>No se pudo generar el contenido de los recursos de apoyo.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock panel_center_content %}
+
+{% block panel_right_content %}
+    {{ super() }}
+{% endblock panel_right_content %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        console.log("Página de Recursos de Apoyo cargada.");
+    </script>
+{% endblock scripts %}

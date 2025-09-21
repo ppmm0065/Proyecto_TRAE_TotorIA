@@ -1,0 +1,557 @@
+{% extends 'base.html' %}
+
+{% block title %}
+    {% if session.file_summary %}
+        Colegio Nueva Esperanza - {{ session.uploaded_filename }}
+    {% else %}
+        Dashboard Principal
+    {% endif %}
+{% endblock %}
+
+{% block panel_left_content %}
+    {% if session.uploaded_filename %}
+        <h2 class="text-xl font-semibold text-slate-800 mb-2">Archivo Activo</h2>
+        <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+            <p class="text-sm text-slate-600">Analizando actualmente:</p>
+            <p class="font-semibold text-indigo-700 break-words">{{ session.uploaded_filename }}</p>
+            <a href="{{ url_for('main.clear_session_file') }}" class="mt-3 block w-full text-center bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded-lg text-sm transition duration-300 ease-in-out">
+                <i class="fas fa-times-circle mr-1"></i> Limpiar y Cargar Nuevo
+            </a>
+        </div>
+    {% else %}
+        <h2 class="text-xl font-semibold text-slate-800 mb-6">Comenzar Análisis</h2>
+        <div class="bg-white p-6 rounded-lg shadow-md border border-slate-200">
+            <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data">
+                <div class="mb-5">
+                    <label for="datafile" class="block text-sm font-medium text-slate-700 mb-2">
+                        1. Selecciona tu archivo CSV:
+                    </label>
+                    <input type="file" id="datafile" name="datafile" accept=".csv" required
+                           class="block w-full text-sm text-slate-500 border border-slate-300 rounded-lg cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    <p class="mt-1 text-xs text-slate-500">Solo archivos .csv son permitidos.</p>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    <i class="fas fa-cloud-upload-alt mr-2"></i> Cargar y Analizar
+                </button>
+            </form>
+        </div>
+        <hr class="my-6 border-slate-300">
+        <h3 class="text-md font-semibold text-slate-700 mb-3">Acciones Rápidas</h3>
+        <ul class="space-y-2 text-sm">
+            <li><a href="#" class="text-slate-400 cursor-not-allowed flex items-center"><i class="fas fa-file-invoice mr-2 w-4 text-center"></i> Generar Reporte Global</a></li>
+            <li><a href="#" class="text-slate-400 cursor-not-allowed flex items-center"><i class="fas fa-chart-line mr-2 w-4 text-center"></i> Ver Tendencias Generales</a></li>
+        </ul>
+    {% endif %}
+{% endblock panel_left_content %}
+
+{% block panel_center_content %}
+    {% if session.file_summary %}
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Dashboard Académico Escolar</h1>
+                <p class="text-sm text-slate-500">Sistema de gestión y seguimiento de estudiantes</p>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-slate-500">Última actualización</p>
+                <p class="font-semibold text-purple-700">{{ now.strftime('%d-%m-%Y') }}</p>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-blue-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Total Estudiantes</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
+                    </div>
+                    <div class="bg-blue-100 text-blue-600 rounded-lg p-2">
+                        <i class="fa-solid fa-users text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-green-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes Activos</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
+                    </div>
+                    <div class="bg-green-100 text-green-600 rounded-lg p-2">
+                        <i class="fa-solid fa-user-check text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-purple-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Promedio General</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ "%.1f" | format(session.file_summary.get('promedio_general')) if session.file_summary.get('promedio_general') != "N/A" else "N/A" }}</p>
+                    </div>
+                    <div class="bg-purple-100 text-purple-600 rounded-lg p-2">
+                        <i class="fa-solid fa-arrow-trend-up text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-cyan-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Asistencia Promedio</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ "%.0f" | format(session.file_summary.asistencia_promedio_global * 100) }}%</p>
+                    </div>
+                     <div class="bg-cyan-100 text-cyan-600 rounded-lg p-2">
+                        <i class="fa-solid fa-calendar-check text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-red-500">
+                 <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes en Riesgo</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.estudiantes_en_riesgo }}</p>
+                    </div>
+                     <div class="bg-red-100 text-red-600 rounded-lg p-2">
+                        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-orange-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Niveles Activos</h3>
+                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.niveles_activos }}</p>
+                    </div>
+                     <div class="bg-orange-100 text-orange-600 rounded-lg p-2">
+                        <i class="fa-solid fa-layer-group text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {# El resto del contenido del panel (Alertas, Tablas, Gráficos) se mantiene igual #}
+        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
+                <i class="fas fa-triangle-exclamation text-red-500 mr-2"></i> Alertas Clave del Establecimiento
+            </h2>
+            <div class="space-y-6">
+                {% if session.file_summary.advanced_alerts and session.file_summary.advanced_alerts.niveles_bajo_rendimiento %}
+                    <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <h3 class="font-semibold text-red-700 mb-2">
+                            <i class="fas fa-chart-line-down mr-1"></i> Niveles con Bajo Rendimiento Significativo
+                        </h3>
+                        <ul class="list-disc list-inside text-sm text-red-600 space-y-1">
+                            {% for alerta in session.file_summary.advanced_alerts.niveles_bajo_rendimiento %}
+                                <li>
+                                    <strong>{{ alerta.nivel }}:</strong> {{ alerta.num_alumnos_bajo_rendimiento }} de {{ alerta.total_alumnos_nivel }} alumnos ({{ alerta.porcentaje_bajo_rendimiento }}) tienen promedio inferior a {{ alerta.umbral_promedio }}.
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4"> 
+                     <div class="bg-red-50 rounded-lg shadow border border-red-200 hover:bg-red-100 transition-colors duration-200">
+                        {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                            <a href="{{ url_for('main.detalle_entidad', tipo='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
+                        {% else %}
+                            <div class="p-4 w-full h-full">
+                        {% endif %}
+                                <h3 class="text-sm font-medium text-red-700 uppercase tracking-wider mb-1 flex items-center">
+                                    <i class="fas fa-arrow-down-short-wide mr-2"></i>Alumno con Menor Rendimiento (General)
+                                </h3>
+                                {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                                    <p class="text-lg font-semibold text-red-900">{{ session.file_summary.alumno_menor_promedio.nombre }}</p>
+                                    <p class="text-sm text-red-700">
+                                        Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | round(2) if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}
+                                    </p>
+                                {% else %}
+                                    <p class="text-sm text-red-700 italic">No disponible.</p>
+                                {% endif %}
+                        {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                            </a>
+                        {% else %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="bg-orange-50 rounded-lg shadow border border-orange-200 hover:bg-orange-100 transition-colors duration-200">
+                        {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                            <a href="{{ url_for('main.detalle_entidad', tipo='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
+                        {% else %}
+                            <div class="p-4 w-full h-full">
+                        {% endif %}
+                                <h3 class="text-sm font-medium text-orange-700 uppercase tracking-wider mb-1 flex items-center">
+                                    <i class="fas fa-chart-simple mr-2"></i>Curso con Menor Rendimiento (General)
+                                </h3>
+                                {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                                    <p class="text-lg font-semibold text-orange-900">{{ session.file_summary.curso_menor_promedio.nombre }}</p>
+                                    <p class="text-sm text-orange-700">
+                                        Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | round(2) if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}
+                                    </p>
+                                {% else %}
+                                     <p class="text-sm text-orange-700 italic">No disponible.</p>
+                                {% endif %}
+                        {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                            </a>
+                        {% else %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="pt-4"> 
+                    <h3 class="text-md font-semibold text-slate-700 mb-3 text-center">
+                        <i class="fas fa-bell text-yellow-500 mr-1"></i> Alertas Detalladas por Nivel
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <button id="btn-alerta-promedio" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 flex items-center justify-center text-sm">
+                                <i class="fas fa-chart-line-down mr-2"></i> Alumnos con Menor Promedio por Nivel (Detalle)
+                                <i id="icon-promedio-alerta" class="fas fa-chevron-down ml-auto transition-transform"></i>
+                            </button>
+                            <div id="lista-alerta-promedio" class="hidden mt-2 p-4 bg-orange-50 border border-orange-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
+                                <p class="text-slate-500 italic">Cargando datos...</p>
+                            </div>
+                        </div>
+                        <div>
+                            <button id="btn-alerta-observaciones" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 flex items-center justify-center text-sm">
+                                <i class="fas fa-user-shield mr-2"></i> Alumnos con Observaciones Críticas por Nivel (Detalle)
+                                <i id="icon-observaciones-alerta" class="fas fa-chevron-down ml-auto transition-transform"></i>
+                            </button>
+                            <div id="lista-alerta-observaciones" class="hidden mt-2 p-4 bg-red-50 border border-red-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
+                                <p class="text-slate-500 italic">Cargando datos...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if session.file_summary.level_kpis %}
+        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
+                <i class="fas fa-layer-group text-indigo-500 mr-2"></i> Resumen por Nivel Educativo
+            </h2>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Nivel</th>
+                            <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Total Alumnos</th>
+                            <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Prom. General (Notas)</th>
+                            {% if session.file_summary.asistencia_data_available %}
+                            <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Prom.</th>
+                            {% endif %}
+                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Menor Prom.</th>
+                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Mayor Prom.</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-slate-200">
+                        {% for nivel, data in session.file_summary.level_kpis.items()|sort %}
+                        <tr>
+                            <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ nivel }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.total_alumnos }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.promedio_general_notas }}</td>
+                            {% if session.file_summary.asistencia_data_available %}
+                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.asistencia_promedio }}</td>
+                            {% endif %}
+                            <td class="px-4 py-3 whitespace-nowrap text-slate-700">
+                                {{ data.curso_menor_promedio.nombre }} ({{ data.curso_menor_promedio.promedio }})
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-slate-700">
+                                {{ data.curso_mayor_promedio.nombre }} ({{ data.curso_mayor_promedio.promedio }})
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="{{ 6 if session.file_summary.asistencia_data_available else 5 }}" class="px-4 py-3 text-center text-slate-500 italic">No hay datos de niveles para mostrar.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if session.file_summary.asistencia_data_available and session.file_summary.course_attendance %}
+        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
+                <i class="fas fa-user-check text-green-500 mr-2"></i> Asistencia Promedio por Curso
+            </h2>
+            <div class="overflow-x-auto custom-scrollbar max-h-72">
+                <table class="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso</th>
+                            <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Promedio</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-slate-200">
+                        {% for curso, asistencia in session.file_summary.course_attendance.items()|sort %}
+                        <tr>
+                            <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ curso }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ asistencia }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="2" class="px-4 py-3 text-center text-slate-500 italic">No hay datos de asistencia por curso para mostrar.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Distribución de Rendimiento Académico</h3>
+                {% if session.file_summary and session.file_summary.average_distribution_data and session.file_summary.average_distribution_data.labels %}
+                    <div><canvas id="rendimientoChart"></canvas></div>
+                    <p class="text-xs text-slate-400 mt-2">Escala de calificaciones: 2.0 (mínimo) - 7.0 (máximo)<br>Nota de aprobación: 4.0</p>
+                {% else %}
+                    <p class="text-center text-slate-500 italic py-10">No hay datos de rendimiento para mostrar.</p>
+                {% endif %}
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Distribución de Asistencia</h3>
+                 {% if session.file_summary and session.file_summary.attendance_distribution_data and session.file_summary.attendance_distribution_data.labels %}
+                    <div><canvas id="asistenciaChart"></canvas></div>
+                 {% else %}
+                    <p class="text-center text-slate-500 italic py-10">No hay datos de asistencia para mostrar.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="mb-8">
+            <h3 class="text-md font-semibold text-slate-700 mb-2">Columnas Detectadas:</h3>
+            <p class="text-sm text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                {{ session.file_summary.column_names | join(', ') }}
+            </p>
+        </div>
+        <div class="text-center mb-8">
+             <a href="{{ url_for('main.chat_avanzado') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-8 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
+                <i class="fas fa-comments mr-2"></i> Ir a Análisis Avanzado con Gemini
+            </a>
+        </div>
+    {% else %}
+        <div class="text-center flex flex-col items-center justify-center h-full">
+            <img src="{{ url_for('static', filename='images/logo1.png') }}" alt="Logo TutorIA360" class="h-24 w-auto mb-6 opacity-80" onerror="this.style.display='none'">
+            <h1 class="text-3xl font-bold text-slate-800 mb-4">Bienvenido a TutorIA360 Dashboard</h1>
+            <p class="text-lg text-slate-600 mb-8 max-w-xl">Comienza por cargar un archivo CSV.</p>
+            <div class="bg-slate-50 p-6 rounded-lg border border-slate-200 max-w-md">
+                <h2 class="text-xl font-semibold text-slate-700 mb-3">¿Cómo Empezar?</h2>
+                <ol class="list-decimal list-inside text-left space-y-2 text-slate-600">
+                    <li>Usa el panel izquierdo para cargar tu archivo CSV.</li>
+                    <li>Este panel mostrará un resumen y opciones de análisis.</li>
+                    <li>Usa el panel derecho para búsquedas específicas.</li>
+                </ol>
+            </div>
+        </div>
+    {% endif %}
+{% endblock panel_center_content %}
+
+{% block panel_right_content %}
+    {{ super() }} 
+{% endblock panel_right_content %}
+
+{% block scripts %}
+    {{ super() }} 
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!{{ session.file_summary is not none | tojson }}) {
+            return; 
+        }
+
+        // --- INICIO: NUEVA CONFIGURACIÓN DE GRÁFICOS ---
+
+        // Configuración común para ambos gráficos
+        const chartOptions = {
+            indexAxis: 'y', // <-- Esto hace que las barras sean horizontales
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false // Oculta la leyenda
+                },
+                tooltip: {
+                    backgroundColor: '#1e293b', // Color de fondo del tooltip
+                    titleFont: { size: 14, weight: 'bold' },
+                    bodyFont: { size: 12 },
+                    padding: 10,
+                    cornerRadius: 6
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    grid: {
+                        display: true,
+                        color: '#e2e8f0' // Color de la cuadrícula
+                    },
+                    ticks: {
+                        color: '#64748b' // Color de las etiquetas del eje X
+                    }
+                },
+                y: {
+                    grid: {
+                        display: false // Oculta la cuadrícula del eje Y
+                    },
+                    ticks: {
+                        color: '#334155', // Color de las etiquetas del eje Y
+                        font: {
+                            weight: '500'
+                        }
+                    }
+                }
+            }
+        };
+
+        // 1. Gráfico de Rendimiento Académico
+        {% if session.file_summary and session.file_summary.average_distribution_data and session.file_summary.average_distribution_data.labels %}
+            try {
+                const rendimientoCtx = document.getElementById('rendimientoChart')?.getContext('2d');
+                if (rendimientoCtx) {
+                    new Chart(rendimientoCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: {{ session.file_summary.average_distribution_data.labels | tojson | safe }},
+                            datasets: [{
+                                label: 'Nº de Estudiantes',
+                                data: {{ session.file_summary.average_distribution_data.counts | tojson | safe }},
+                                backgroundColor: ['#ef4444', '#f97316', '#22c55e', '#22c55e', '#22c55e'], // Rojo, Naranja, Verde
+                                borderRadius: 4
+                            }]
+                        },
+                        options: { ...chartOptions } // Usa las opciones comunes
+                    });
+                }
+            } catch(e) { console.error("Error al renderizar gráfico de rendimiento:", e); }
+        {% endif %}
+
+        // 2. Gráfico de Distribución de Asistencia
+        {% if session.file_summary and session.file_summary.attendance_distribution_data and session.file_summary.attendance_distribution_data.labels %}
+            try {
+                const asistenciaCtx = document.getElementById('asistenciaChart')?.getContext('2d');
+                if (asistenciaCtx) {
+                     new Chart(asistenciaCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: {{ session.file_summary.attendance_distribution_data.labels | tojson | safe }},
+                            datasets: [{
+                                label: 'Nº de Estudiantes',
+                                data: {{ session.file_summary.attendance_distribution_data.counts | tojson | safe }},
+                                backgroundColor: ['#16a34a', '#22c55e', '#3b82f6', '#f97316', '#ef4444'], // Tonos de Verde, Azul, Naranja, Rojo
+                                borderRadius: 4
+                            }]
+                        },
+                        options: { ...chartOptions } // Usa las opciones comunes
+                    });
+                }
+            } catch(e) { console.error("Error al renderizar gráfico de asistencia:", e); }
+        {% endif %}
+
+        // --- FIN: NUEVA CONFIGURACIÓN DE GRÁFICOS ---
+
+        // --- SCRIPT PARA ALERTAS (EXISTENTE - SIN CAMBIOS EN SU LÓGICA) ---
+        // ... (El resto del script para las alertas desplegables se mantiene igual) ...
+        const btnAlertaPromedio = document.getElementById('btn-alerta-promedio');
+        const listaAlertaPromedio = document.getElementById('lista-alerta-promedio');
+        const iconPromedioAlerta = document.getElementById('icon-promedio-alerta');
+
+        const btnAlertaObservaciones = document.getElementById('btn-alerta-observaciones');
+        const listaAlertaObservaciones = document.getElementById('lista-alerta-observaciones');
+        const iconObservacionesAlerta = document.getElementById('icon-observaciones-alerta');
+
+        async function fetchAndDisplayAlerts(apiUrl, listElement, buttonIconElement, alertType) {
+            if (alertType === 'promedio' && listaAlertaObservaciones.style.display !== 'none') {
+                listaAlertaObservaciones.style.display = 'none';
+                listaAlertaObservaciones.classList.add('hidden'); 
+                iconObservacionesAlerta.classList.remove('fa-chevron-up');
+                iconObservacionesAlerta.classList.add('fa-chevron-down');
+            } else if (alertType === 'observaciones' && listaAlertaPromedio.style.display !== 'none') {
+                listaAlertaPromedio.style.display = 'none';
+                 listaAlertaPromedio.classList.add('hidden'); 
+                iconPromedioAlerta.classList.remove('fa-chevron-up');
+                iconPromedioAlerta.classList.add('fa-chevron-down');
+            }
+
+            const isHidden = listElement.style.display === 'none' || listElement.classList.contains('hidden');
+            if (!isHidden) {
+                listElement.style.display = 'none';
+                listElement.classList.add('hidden');
+                buttonIconElement.classList.remove('fa-chevron-up');
+                buttonIconElement.classList.add('fa-chevron-down');
+                return;
+            }
+
+            listElement.innerHTML = '<p class="text-slate-500 italic p-2">Cargando datos de alerta...</p>';
+            listElement.style.display = 'block';
+            listElement.classList.remove('hidden');
+            buttonIconElement.classList.remove('fa-chevron-down');
+            buttonIconElement.classList.add('fa-chevron-up');
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: `Error del servidor: ${response.status}` }));
+                    throw new Error(errorData.error || `Error HTTP: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                listElement.innerHTML = ''; 
+
+                if (data.error) {
+                    listElement.innerHTML = `<p class="text-red-500 p-2">${data.error}</p>`;
+                } else if (data.message) { 
+                     listElement.innerHTML = `<p class="text-slate-600 p-2 italic">${data.message}</p>`;
+                } else if (Object.keys(data).length === 0) {
+                    listElement.innerHTML = `<p class="text-slate-600 p-2 italic">No se encontraron alertas para mostrar.</p>`;
+                } else {
+                    const ul = document.createElement('ul');
+                    ul.className = 'space-y-3';
+
+                    Object.entries(data).forEach(([nivel, alumnos]) => {
+                        if (alumnos.length > 0) {
+                            const nivelLi = document.createElement('li');
+                            nivelLi.className = 'mb-2';
+                            const nivelHeader = document.createElement('h4');
+                            nivelHeader.className = 'font-semibold text-slate-700 text-xs uppercase tracking-wider';
+                            nivelHeader.textContent = nivel;
+                            nivelLi.appendChild(nivelHeader);
+                            
+                            const alumnosUl = document.createElement('ul');
+                            alumnosUl.className = 'list-disc list-inside ml-4 space-y-1 text-slate-600';
+                            alumnos.forEach(alumno => {
+                                const alumnoLi = document.createElement('li');
+                                let alumnoText = `${alumno.nombre} (${alumno.curso_original})`;
+                                if (alertType === 'promedio') {
+                                    alumnoText += ` - Prom: ${alumno.promedio}`;
+                                } else if (alertType === 'observaciones') {
+                                    alumnoText += `: <span class="italic">"${alumno.observacion}"</span>`;
+                                }
+                                alumnoLi.innerHTML = alumnoText; 
+                                alumnosUl.appendChild(alumnoLi);
+                            });
+                            nivelLi.appendChild(alumnosUl);
+                            ul.appendChild(nivelLi);
+                        }
+                    });
+                    if (ul.children.length === 0) {
+                         listElement.innerHTML = `<p class="text-slate-600 p-2 italic">No se encontraron alertas específicas.</p>`;
+                    } else {
+                        listElement.appendChild(ul);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error fetching ${alertType} alerts:`, error);
+                listElement.innerHTML = `<p class="text-red-500 p-2">Error al cargar alertas: ${error.message}</p>`;
+            }
+        }
+
+        if (btnAlertaPromedio && listaAlertaPromedio && iconPromedioAlerta) {
+            btnAlertaPromedio.addEventListener('click', function() {
+                fetchAndDisplayAlerts("{{ url_for('main.api_alertas_menor_promedio_niveles') }}", listaAlertaPromedio, iconPromedioAlerta, 'promedio');
+            });
+        }
+
+        if (btnAlertaObservaciones && listaAlertaObservaciones && iconObservacionesAlerta) {
+            btnAlertaObservaciones.addEventListener('click', function() {
+                fetchAndDisplayAlerts("{{ url_for('main.api_alertas_observaciones_negativas_niveles') }}", listaAlertaObservaciones, iconObservacionesAlerta, 'observaciones');
+            });
+        }
+    });
+    </script>
+{% endblock scripts %}

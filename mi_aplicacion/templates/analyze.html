@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}Analizar Archivo: {{ filename }}{% endblock %}
+
+{% block panel_left_content %}
+    {# --- Contenido del Panel Izquierdo --- #}
+    <h2 class="text-xl font-semibold text-slate-800 mb-2">Analizando Archivo</h2>
+    <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
+        <p class="text-sm text-slate-600">Archivo actual:</p>
+        <p class="font-semibold text-indigo-700 break-words">{{ filename }}</p>
+    </div>
+
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Navegación</h3>
+    <ul class="space-y-2 text-sm">
+        <li>
+            <a href="{{ url_for('main.index') }}" class="text-slate-600 hover:text-indigo-600 hover:font-semibold flex items-center">
+                <i class="fas fa-arrow-left mr-2 w-4 text-center"></i> Cargar Otro Archivo
+            </a>
+        </li>
+         <li>
+            <a href="{{ url_for('main.show_results') }}" class="text-slate-600 hover:text-indigo-600 hover:font-semibold flex items-center">
+                <i class="fas fa-clipboard-list mr-2 w-4 text-center"></i> Ver Últimos Resultados
+            </a>
+        </li>
+    </ul>
+
+    <hr class="my-6 border-slate-300">
+
+    <h3 class="text-md font-semibold text-slate-700 mb-3">Acciones (Próximamente)</h3>
+    <ul class="space-y-2 text-sm">
+        <li>
+            <a href="#" class="text-slate-400 cursor-not-allowed flex items-center">
+                <i class="fas fa-sync-alt mr-2 w-4 text-center"></i> Reiniciar Conversación
+            </a>
+        </li>
+        <li>
+            <a href="#" class="text-slate-400 cursor-not-allowed flex items-center">
+                <i class="fas fa-file-export mr-2 w-4 text-center"></i> Exportar Análisis Actual
+            </a>
+        </li>
+    </ul>
+{% endblock panel_left_content %}
+
+{% block panel_center_content %}
+    {# --- Contenido del Panel Central --- #}
+    <div class="flex flex-col h-full">
+        <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">
+            Haz una Pregunta sobre <span class="text-indigo-600">{{ filename }}</span>
+        </h1>
+
+        {# Historial de chat (oculto) #}
+        {% if chat_history and chat_history|length > 0 and false %}
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold text-slate-700 mb-3">Conversación Reciente (Contexto para Gemini):</h2>
+            <div id="chat-history-display-analyze" class="p-4 border border-slate-300 rounded-lg bg-slate-50 max-h-48 overflow-y-auto space-y-4 custom-scrollbar">
+                {% for entry in chat_history %}
+                    {# ... contenido del historial ... #}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# Formulario para enviar pregunta a Gemini #}
+        <form method="POST" action="{{ url_for('main.analyze_page') }}" class="bg-white p-6 rounded-lg shadow-lg border border-slate-200 flex-grow flex flex-col">
+            <div class="mb-4 flex-grow">
+                <label for="user_prompt" class="block text-slate-700 text-sm font-semibold mb-2">
+                    <i class="fas fa-question-circle mr-2 text-indigo-500"></i>Escribe tu pregunta o instrucción:
+                </label>
+                <textarea name="user_prompt" id="user_prompt" rows="8"
+                          class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-150 ease-in-out shadow-sm sm:text-sm"
+                          placeholder="Ej: ¿Cuál es el promedio de edad de los estudiantes de ingeniería? Compara el rendimiento del curso A y B. Resume las observaciones de conducta del último mes..."
+                          ></textarea>
+            </div>
+            <div class="mt-auto text-center">
+                <button type="submit"
+                        class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-8 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">
+                    <i class="fas fa-paper-plane mr-2"></i> Enviar Pregunta a Gemini
+                </button>
+            </div>
+        </form>
+    </div>
+{% endblock panel_center_content %}
+
+{% block panel_right_content %} {# ¡ASEGÚRATE QUE ESTE BLOQUE ES IDÉNTICO AL DE BASE.HTML! #}
+    {{ super() }}
+{% endblock panel_right_content %}
+
+{% block scripts %}
+    {# Incluye los scripts de base.html #}
+    {{ super() }}
+    <script>
+        console.log("Analyze page dashboard loaded.");
+        // No se necesitan scripts adicionales específicos aquí por ahora
+    </script>
+{% endblock scripts %}
