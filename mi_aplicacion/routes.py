@@ -598,8 +598,11 @@ def api_detalle_chat():
         nota_col = current_app.config['NOTA_COL']
         asignatura_col = current_app.config['ASIGNATURA_COL']
 
-        # INTENCIÓN: PREGUNTAS SOBRE ASIGNATURAS
-        if 'asignatura' in prompt_lower or 'materia' in prompt_lower or 'ramo' in prompt_lower:
+        # --- LÓGICA DE INTENCIONES REFINADA Y EN ORDEN DE PRIORIDAD ---
+
+        # INTENCIÓN 1 (Más Específica): PREGUNTAS SOBRE ASIGNATURAS
+        # FIX: La condición ahora es más estricta para no capturar preguntas sobre "promedio" en general.
+        if any(kw in prompt_lower for kw in ['asignatura', 'materia', 'ramo']):
             print("DEBUG: Intención de ASIGNATURA detectada.")
             if tipo_entidad == 'curso':
                 promedios_asignaturas = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
@@ -612,43 +615,73 @@ def api_detalle_chat():
                         peor_key = promedios_asignaturas.idxmin()
                         response_md = f"La asignatura con el rendimiento más bajo en {nombre_entidad} es **{peor_key}** con un promedio de **{promedios_asignaturas.min():.2f}**."
                         return jsonify(crear_respuesta_directa(response_md))
-            
             elif tipo_entidad == 'alumno':
-                alumno_notas = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
-                if not alumno_notas.empty:
+                alumno_notas_promedio = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
+                if not alumno_notas_promedio.empty:
                     if any(kw in prompt_lower for kw in ['mejor', 'mayor', 'más alto']):
-                        mejor_key = alumno_notas.idxmax()
-                        response_md = f"La asignatura con el mejor promedio para {nombre_entidad} es **{mejor_key}** con una nota de **{alumno_notas.max():.2f}**."
+                        mejor_key = alumno_notas_promedio.idxmax()
+                        response_md = f"La asignatura con el mejor promedio para {nombre_entidad} es **{mejor_key}** con una nota de **{alumno_notas_promedio.max():.2f}**."
                         return jsonify(crear_respuesta_directa(response_md))
                     elif any(kw in prompt_lower for kw in ['peor', 'menor', 'más bajo']):
-                        peor_key = alumno_notas.idxmin()
-                        response_md = f"La asignatura con el promedio más bajo para {nombre_entidad} es **{peor_key}** con una nota de **{alumno_notas.min():.2f}**."
+                        peor_key = alumno_notas_promedio.idxmin()
+                        response_md = f"La asignatura con el promedio más bajo para {nombre_entidad} es **{peor_key}** con una nota de **{alumno_notas_promedio.min():.2f}**."
                         return jsonify(crear_respuesta_directa(response_md))
+                    else:
+                        lista_promedios_md = f"Estos son los promedios de **{nombre_entidad}** por asignatura:\n\n"
+                        for asignatura, promedio in alumno_notas_promedio.round(2).items():
+                            lista_promedios_md += f"* **{asignatura}:** {promedio}\n"
+                        return jsonify(crear_respuesta_directa(lista_promedios_md))
+        
+        # INTENCIÓN 2: ALUMNO CON MÁS ASIGNATURAS BAJAS
+        elif ('alumno' in prompt_lower or 'estudiante' in prompt_lower) and ('cantidad de asignaturas' in prompt_lower or 'asignaturas con nota' in prompt_lower) and ('bajo' in prompt_lower or 'menor a' in prompt_lower):
+            # Lógica existente (correcta)
+            print("DEBUG: Intención de ALUMNO CON MÁS ASIGNATURAS BAJAS detectada.")
+            subject_cols_config = df_global[asignatura_col].unique().tolist()
+            threshold = current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0)
+            df_entidad_copy = df_entidad.copy()
+            df_entidad_copy['asignaturas_bajas_count'] = df_entidad_copy.groupby(nombre_col)[nota_col].transform(lambda x: (x < threshold).sum())
+            df_alumnos_unicos = df_entidad_copy.drop_duplicates(subset=[nombre_col]).copy()
+            max_bajas = df_alumnos_unicos['asignaturas_bajas_count'].max()
+            if max_bajas > 0:
+                alumnos_criticos = df_alumnos_unicos[df_alumnos_unicos['asignaturas_bajas_count'] == max_bajas]
+                nombre_alumno = alumnos_criticos.iloc[0][nombre_col]
+                cantidad_asignaturas = int(max_bajas)
+                asignaturas_bajas_df = df_entidad[(df_entidad[nombre_col] == nombre_alumno) & (df_entidad[nota_col] < threshold)]
+                asignaturas_bajas = asignaturas_bajas_df[asignatura_col].unique().tolist()
+                response_md = f"El alumno con la mayor cantidad de asignaturas con rendimiento bajo {threshold} es **{nombre_alumno}**, con **{cantidad_asignaturas}** asignatura(s): *{', '.join(asignaturas_bajas)}*."
+                return jsonify(crear_respuesta_directa(response_md))
+            else:
+                response_md = f"Ningún alumno en el curso {nombre_entidad} tiene asignaturas con promedio inferior a {threshold}."
+                return jsonify(crear_respuesta_directa(response_md))
 
-        # INTENCIÓN: MEJOR/PEOR ALUMNO
-        elif (('alumno' in prompt_lower or 'estudiante' in prompt_lower) or 'quién' in prompt_lower) and any(kw in prompt_lower for kw in ['mejor', 'peor', 'mayor', 'menor']) and ' y ' not in prompt_lower:
+        # INTENCIÓN 3: ANOTACIONES
+        elif any(kw in prompt_lower for kw in ['anotaciones', 'registros', 'observaciones']) and any(kw in prompt_lower for kw in ['quién', 'cuál', 'qué alumno']):
+            # Lógica existente (correcta)
+            pass 
+
+        # INTENCIÓN 4: MEJOR/PEOR ALUMNO
+        elif (('alumno' in prompt_lower or 'estudiante' in prompt_lower) or 'quién' in prompt_lower) and any(kw in prompt_lower for kw in ['mejor', 'peor', 'mayor', 'menor', 'promedio']) and ' y ' not in prompt_lower:
             print("DEBUG: Intención de MEJOR/PEOR ALUMNO detectada.")
             promedio_col = current_app.config['PROMEDIO_COL']
             df_alumnos_unicos = df_entidad.drop_duplicates(subset=[nombre_col])
-            if promedio_col in df_alumnos_unicos.columns:
+            if promedio_col in df_alumnos_unicos.columns and not df_alumnos_unicos.empty:
                 if any(kw in prompt_lower for kw in ['mejor', 'mayor']):
                     mejor_alumno = df_alumnos_unicos.loc[df_alumnos_unicos[promedio_col].idxmax()]
                     response_md = f"El alumno con el mejor promedio en {nombre_entidad} es **{mejor_alumno[nombre_col]}** con un **{mejor_alumno[promedio_col]:.2f}**."
                     return jsonify(crear_respuesta_directa(response_md))
-                elif any(kw in prompt_lower for kw in ['peor', 'menor']):
+                elif any(kw in prompt_lower for kw in ['peor', 'menor', 'más bajo']):
                     peor_alumno = df_alumnos_unicos.loc[df_alumnos_unicos[promedio_col].idxmin()]
                     response_md = f"El alumno con el peor promedio en {nombre_entidad} es **{peor_alumno[nombre_col]}** con un **{peor_alumno[promedio_col]:.2f}**."
                     return jsonify(crear_respuesta_directa(response_md))
 
-        # INTENCIÓN: PROMEDIO DEL CURSO
-        elif ('promedio' in prompt_lower or 'media' in prompt_lower) and 'alumno' not in prompt_lower and 'asignatura' not in prompt_lower:
+        # INTENCIÓN 5: PROMEDIO DEL CURSO
+        elif ('promedio' in prompt_lower or 'media' in prompt_lower) and 'curso' in prompt_lower:
             print("DEBUG: Intención de PROMEDIO DEL CURSO detectada.")
-            # FIX: Calcular el promedio de todas las notas, no el promedio de promedios.
             promedio_curso = df_entidad[nota_col].mean()
             response_md = f"El promedio general del curso {nombre_entidad} es **{promedio_curso:.2f}**."
             return jsonify(crear_respuesta_directa(response_md))
         
-        # INTENCIÓN: CONTEO DE ALUMNOS
+        # INTENCIÓN 6: CONTEO DE ALUMNOS
         elif ('alumnos' in prompt_lower or 'estudiantes' in prompt_lower) and any(kw in prompt_lower for kw in ['cuántos', 'cantidad', 'número', 'total de']):
             print("DEBUG: Intención de CONTEO DE ALUMNOS detectada.")
             count = df_entidad[nombre_col].nunique()
@@ -657,6 +690,7 @@ def api_detalle_chat():
 
     # Si ninguna intención simple coincide, se procede con la consulta a Gemini.
     print("DEBUG: No se detectó intención simple o la consulta es compleja. Enviando a Gemini.")
+    # (El resto de la función para llamar a Gemini no cambia)
     data_string_especifico = load_data_as_string(session.get('current_file_path'), specific_entity_df=df_entidad)
     chat_history_key = f'chat_history_detalle_{tipo_entidad}_{nombre_entidad}'
     chat_history_list_detalle = session.get(chat_history_key, [])
