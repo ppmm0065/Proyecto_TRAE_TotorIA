@@ -721,7 +721,6 @@ def crear_respuesta_directa(texto_markdown):
         'consumo_sesion': session.get('consumo_sesion', {'total_tokens': 0, 'total_cost': 0.0}),
         'error': None
     }
-# --- FIN DEL BLOQUE PARA REEMPLAZAR ---
 
 @main_bp.route('/api/submit_advanced_chat', methods=['POST'])
 def api_submit_advanced_chat(): 
@@ -729,28 +728,59 @@ def api_submit_advanced_chat():
     data = request.json; user_prompt = data.get('prompt')
     if not user_prompt: return jsonify({"error": "No se recibió prompt."}), 400
 
-    # NUEVO: Inicializar contador de sesión si no existe
     if 'consumo_sesion' not in session:
         session['consumo_sesion'] = {'total_tokens': 0, 'total_cost': 0.0}
     
-    data_string = load_data_as_string(session.get('current_file_path')) 
-    if isinstance(data_string, str) and data_string.startswith("Error:"): return jsonify({"error": data_string}), 500
+    df_global = get_dataframe_from_session_file()
+    if df_global is None or df_global.empty:
+        return jsonify({"error": "No se pudo cargar el DataFrame."}), 500
+
+    prompt_lower = user_prompt.lower()
+    data_string = ""
+    entity_type = None
+    entity_name = None
+    
+    # Obtenemos la ruta del archivo una sola vez
+    file_path = session.get('current_file_path')
+
+    nombre_col = current_app.config['NOMBRE_COL']
+    curso_col = current_app.config['CURSO_COL']
+    student_names = df_global[nombre_col].unique().tolist()
+    course_names = df_global[curso_col].unique().tolist()
+
+    found_student = next((name for name in student_names if name.lower() in prompt_lower), None)
+    if found_student:
+        entity_type = 'alumno'
+        entity_name = found_student
+        print(f"DEBUG: Chat Avanzado detectó entidad ALUMNO: {entity_name}")
+        df_entidad = df_global[df_global[nombre_col] == entity_name]
+        # --- LÍNEA CORREGIDA ---
+        # Pasamos el file_path requerido como primer argumento.
+        data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
+    else:
+        found_course = next((name for name in course_names if name.lower() in prompt_lower), None)
+        if found_course:
+            entity_type = 'curso'
+            entity_name = found_course
+            print(f"DEBUG: Chat Avanzado detectó entidad CURSO: {entity_name}")
+            df_entidad = df_global[df_global[curso_col] == entity_name]
+            # --- LÍNEA CORREGIDA ---
+            # Pasamos el file_path requerido como primer argumento.
+            data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
+
+    if not data_string:
+        print("DEBUG: Chat Avanzado detectó consulta GENERAL. Usando resumen del dashboard.")
+        file_summary = session.get('file_summary', {})
+        import json
+        data_string = "Contexto: A continuación se presenta un resumen estadístico general del colegio, no el listado completo de alumnos.\n\n"
+        data_string += json.dumps(file_summary, indent=2, ensure_ascii=False)
     
     history_list = session.get('advanced_chat_history', [])
-    history_fmt = format_chat_history_for_prompt(history_list[-current_app.config.get('MAX_CHAT_HISTORY_TURNS_FOR_GEMINI_PROMPT', 3):])
+    history_fmt = format_chat_history_for_prompt(history_list)
     
-    if not embedding_model_instance: return jsonify({"error": "Componentes RAG (Embeddings) no disponibles."}), 500
-    
-    # MODIFICADO: Llamada a la función y manejo del resultado
     analysis_result = analyze_data_with_gemini(
-        data_string, 
-        user_prompt, 
-        vector_store, 
-        vector_store_followups, 
-        history_fmt, 
-        is_direct_chat_query=True,
-        entity_type=None,
-        entity_name=None
+        data_string, user_prompt, vector_store, vector_store_followups, history_fmt, 
+        is_direct_chat_query=True, entity_type=entity_type, entity_name=entity_name
     )
     
     if not analysis_result.get('error'):
@@ -760,16 +790,12 @@ def api_submit_advanced_chat():
             'gemini_html': analysis_result['html_output']
         })
         session['advanced_chat_history'] = history_list[-current_app.config.get('MAX_CHAT_HISTORY_SESSION_STORAGE', 10):]
-
-        # Actualizar contador de sesión global
         session['consumo_sesion']['total_tokens'] += analysis_result.get('total_tokens', 0)
         session['consumo_sesion']['total_cost'] += analysis_result.get('total_cost', 0)
-
-        # Añadir totales de sesión a la respuesta para el frontend
         analysis_result['consumo_sesion'] = session['consumo_sesion']
         session.modified = True
 
-    return jsonify(analysis_result) # NUEVO: Devolver el objeto de resultado completo
+    return jsonify(analysis_result)
 
 @main_bp.route('/api/add_advanced_chat_follow_up', methods=['POST'])
 def api_add_advanced_chat_follow_up(): 

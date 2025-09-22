@@ -736,15 +736,43 @@ def get_alumnos_menor_promedio_por_nivel(df):
 
 def get_alumnos_observaciones_negativas_por_nivel(df):
     if df is None or df.empty: return {}
-    cols = [current_app.config.get(c) for c in ['NOMBRE_COL', 'CURSO_COL', 'OBSERVACIONES_COL']]
+    
+    # Obtener nombres de columnas desde la configuración
+    nombre_col = current_app.config.get('NOMBRE_COL')
+    curso_col = current_app.config.get('CURSO_COL')
+    obs_col = current_app.config.get('OBSERVACIONES_COL')
     kws = current_app.config.get('NEGATIVE_OBSERVATION_KEYWORDS', [])
-    if not cols[2] or not all(c in df.columns for c in cols) or not kws: return {}
-    df_c = df.copy(); df_c['Nivel'] = df_c[cols[1]].astype(str).apply(_extract_level_from_course)
-    kws_l = [kw.lower() for kw in kws]; res_ag = {}
-    df_neg = df_c[df_c[cols[2]].apply(lambda o: any(kw in str(o).lower() for kw in kws_l) if pd.notna(o) else False)]
+    
+    if not all([nombre_col, curso_col, obs_col]) or not kws:
+        return {} # No se puede continuar si faltan columnas clave o palabras clave
+    
+    if obs_col not in df.columns:
+        return {} # La columna de observaciones no existe en el archivo
+        
+    df_c = df.copy()
+    df_c['Nivel'] = df_c[curso_col].astype(str).apply(_extract_level_from_course)
+    
+    # Filtrar todas las filas que contienen una palabra clave negativa en la columna de observación
+    kws_l = [kw.lower() for kw in kws]
+    df_neg = df_c[df_c[obs_col].apply(lambda o: any(kw in str(o).lower() for kw in kws_l) if pd.notna(o) else False)]
+    
+    # De la lista de filas con observaciones negativas, eliminamos los alumnos duplicados.
+    # Esto asegura que cada alumno aparezca solo una vez en el reporte de alertas.
+    if not df_neg.empty:
+        df_neg = df_neg.drop_duplicates(subset=[nombre_col])
+    
+    # Agrupar los alumnos únicos por Nivel
+    res_ag = {}
     for niv, grp in df_neg.groupby('Nivel'):
-        al_niv = [{"nombre": r[cols[0]], "curso_original": r[cols[1]], "observacion": str(r[cols[2]])} for _, r in grp.iterrows()]
-        if al_niv: res_ag[niv] = al_niv
+        al_niv = [{
+            "nombre": r[nombre_col], 
+            "curso_original": r[curso_col], 
+            "observacion": str(r[obs_col])
+        } for _, r in grp.iterrows()]
+        
+        if al_niv:
+            res_ag[niv] = al_niv
+            
     return res_ag
 
 def get_level_kpis(df):
