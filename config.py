@@ -30,7 +30,7 @@ class Config:
     # Nota: Las tarifas pueden cambiar. Verificar siempre los precios oficiales del proveedor.
     # Para Gemini 1.5 Flash, los precios para prompts > 128k tokens son los indicados.
     MODEL_PRICING = {
-        'gemini-1.5-flash-latest': {
+        'gemini-2.5-flash': {
             'input_per_million': 0.35,  # USD
             'output_per_million': 1.05, # USD
             'provider': 'Google'

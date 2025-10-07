@@ -147,7 +147,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                              entity_type=None, entity_name=None):
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
-    model_name = 'gemini-1.5-flash-latest' # NUEVO: Definir el nombre del modelo para usarlo en cálculos
+    model_name = 'gemini-2.5-flash' # NUEVO: Definir el nombre del modelo para usarlo en cálculos
 
     # NUEVO: Estructura de retorno de error estandarizada
     def create_error_response(error_message):
@@ -1096,7 +1096,7 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
     try:
         api_key = current_app.config.get('GEMINI_API_KEY')
         genai.configure(api_key=api_key)
-        model_analisis = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model_analisis = genai.GenerativeModel('gemini-2.5-flash')
         
         prompt_analisis_plan = f"""
         Analiza el siguiente "Plan de Intervención" para el {tipo_entidad} '{nombre_entidad}'.
@@ -1185,7 +1185,7 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
     """
     try:
         print("DEBUG: Enviando prompt a Gemini para SIMULAR y sugerir recursos...") 
-        model_sugerencias = genai.GenerativeModel('gemini-1.5-flash-latest') 
+        model_sugerencias = genai.GenerativeModel('gemini-2.5-flash')
         response_sugerencias = model_sugerencias.generate_content(prompt_sugerencia_recursos)
         final_html = response_sugerencias.text.strip()
         
