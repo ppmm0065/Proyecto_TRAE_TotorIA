@@ -875,8 +875,6 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
     
     df_entidad = pd.DataFrame()
     try:
-        # --- LÍNEAS CORREGIDAS ---
-        # Se aplica la misma lógica de normalización robusta que en las otras funciones.
         nombre_entidad_normalizado = nombre_entidad.strip().lower()
         if tipo_entidad == 'alumno': 
             df_entidad = df_global[df_global[current_app.config['NOMBRE_COL']].astype(str).str.strip().str.lower() == nombre_entidad_normalizado]
@@ -898,12 +896,9 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
         flash(f'Error al cargar datos para el reporte: {datos_entidad_string}', 'danger')
         return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     
-    prompt_reporte_360_base = f"""
-    Generar un breve reporte bien estructurado, de facil lectura y de no mas de 200 palabras, que identifique las fortalezas y desafios en el aprendizaje del {tipo_entidad} '{nombre_entidad}'.
-    El reporte debe ser conciso y directo, enfocado en puntos clave.
-    **Considera especificamente la informacion en la columna 'materias_debiles' (si esta presente en los datos) para detallar los desafios academicos y sugerir areas de enfoque.**
-    Sigue el rol y las directrices generales definidas en GEMINI_SYSTEM_ROLE_PROMPT.
-    """
+    # Usamos la nueva constante del config para el prompt, formateándola con los datos de la entidad.
+    prompt_template = current_app.config.get('PROMPT_REPORTE_360', "Generar reporte para {tipo_entidad} {nombre_entidad}")
+    prompt_reporte_360_base = prompt_template.format(tipo_entidad=tipo_entidad, nombre_entidad=nombre_entidad)
     
     analysis_result = analyze_data_with_gemini(
         data_string=datos_entidad_string, 

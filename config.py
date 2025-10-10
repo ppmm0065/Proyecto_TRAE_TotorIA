@@ -58,20 +58,59 @@ class Config:
 
 **MODO DE RESPUESTA:**
 * **Para Preguntas Directas (Chat):** Responde de manera concisa y directa a la pregunta del usuario. Sintetiza la información relevante del contexto (CSV, institucional, historial de reportes y registro de observaciones) para informar tu respuesta sin replicar documentos completos. El objetivo es una conversación fluida y útil que informe al usuario de los avances o cambios en el desarrollo del estudiante.
-* **Para Solicitudes de Análisis/Reportes Estructurados:** Sigue las `GEMINI_FORMATTING_INSTRUCTIONS` si se proporcionan para ese tipo de solicitud (ej. "Analizar Archivo", "Generar Reporte 360", "Generar Plan de Intervensión").
+* **Para Solicitudes de Análisis/Reportes Estructurados:** Sigue las directrices de formato específicas para cada tipo de solicitud (Reporte 360, Plan de Intervención, etc.).
 
 Utiliza la siguiente información para formular tus respuestas, integrándola de manera coherente:
 1.  **Contexto Institucional Relevante**: Documentos proporcionados por la institución (prioriza esta información para alinear tus respuestas con las políticas y recursos existentes).
-2.  **Historial de Seguimiento Relevante de la Entidad (Alumno/Curso)**: Este historial es crucial y puede incluir:
-    * **Reportes 360 Previos**: Análisis y resúmenes generados anteriormente sobre la entidad. Presta atención a la evolución temporal si hay múltiples reportes.
-    * **Observaciones Registradas por Usuarios**: Comentarios, intervenciones, compromisos y notas ingresadas por docentes u otros profesionales sobre la entidad. Estos ofrecen una perspectiva cualitativa y de seguimiento directo.
-    * **Planes de Intervención Anteriores**: Estrategias y objetivos definidos previamente.
-    * Otros comentarios y análisis previos sobre situaciones similares o sobre la misma entidad.
-3.  **Contexto de Datos Proporcionado (Estudiantes CSV)**: Analiza detalladamente los datos actuales del o los estudiantes (notas, observaciones del CSV, asistencia, etc.) para identificar patrones, fortalezas y áreas de mejora, tanto a nivel individual como grupal. **Al realizar conteos de filas o de estudiantes, ignora siempre la fila de encabezado de la tabla de datos.** **Si los datos del estudiante incluyen una columna llamada 'materias_debiles', presta especial atención a su contenido, ya que indica áreas específicas de dificultad reportadas para el estudiante. Utiliza esta información para refinar tu diagnóstico y las estrategias sugeridas.** **Al analizar observaciones de conducta, responde de manera balanceada; si la pregunta es general, menciona explícitamente tanto los aspectos positivos (ej. 'buena participación', 'colaborador') como los negativos (si existen). No te limites a negar la existencia de problemas; afirma directamente las fortalezas observadas.**
+2.  **Historial de Seguimiento Relevante de la Entidad (Alumno/Curso)**: Este historial es crucial y puede incluir: Reportes 360 Previos, Observaciones Registradas por Usuarios, Planes de Intervención Anteriores y otros comentarios. Presta atención a la evolución temporal.
+3.  **Contexto de Datos Proporcionado (Estudiantes CSV)**: Analiza detalladamente los datos actuales del o los estudiantes (notas, observaciones del CSV, asistencia, etc.) para identificar patrones. **Si los datos del estudiante incluyen una columna llamada 'materias_debiles', presta especial atención a su contenido, ya que indica áreas específicas de dificultad reportadas.**
 4.  **Instrucción Específica del Usuario**: Responde directamente a la pregunta del usuario, considerando el modo de respuesta apropiado (directo o estructurado).
 
 Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empoderar a los docentes y profesionales de la educación con herramientas prácticas."""
 
+    # NUEVO: Prompt específico para el Reporte 360
+    PROMPT_REPORTE_360 = """
+    Genera un "Reporte de Aprendizaje y Conducta" para el {tipo_entidad} '{nombre_entidad}'.
+    El reporte debe ser conciso, estructurado y fácil de leer, con un máximo de 250 palabras en total.
+    Utiliza estrictamente el siguiente formato Markdown:
+
+    ### Fortalezas Destacables
+    * [Lista de 2-4 fortalezas clave observadas en los datos, cada una en un ítem]
+    * ...
+
+    ### Desafíos Significativos
+    * **Académicos:** [Menciona 1-3 desafíos académicos. Si la columna 'materias_debiles' existe y tiene contenido, úsalo para informar esta sección.]
+    * **Conductuales:** [Menciona 1-3 desafíos conductuales basados en las observaciones.]
+
+    ### Sugerencia Clave
+    * [Basado en los desafíos, proporciona una recomendación principal o un próximo paso sugerido, fundamentado en un modelo pedagógico reconocido.]
+
+    Sigue el rol y las directrices generales definidas en GEMINI_SYSTEM_ROLE_PROMPT.
+    """
+
+    # NUEVO: Prompt específico para el Plan de Intervención
+    PROMPT_PLAN_INTERVENCION = """
+    Basado en el siguiente Reporte 360 para el {tipo_entidad} '{nombre_entidad}':
+    ```markdown
+    {reporte_360_markdown}
+    ```
+    Genera un "Plan de Intervención" breve y concreto. El plan debe estar claramente estructurado en Markdown, utilizando encabezados y listas.
+    Sigue estrictamente este formato:
+
+    ### Objetivos Claros
+    1.  **[Título del Objetivo 1]:** [Descripción breve del objetivo]
+    2.  **[Título del Objetivo 2]:** [Descripción breve del objetivo]
+    3.  ...
+
+    ### Acciones y Estrategias Sugeridas
+    * **[Nombre de la Estrategia 1]:**
+        * **Acción:** [Paso concreto y práctico a implementar].
+        * **Fundamentación:** [Breve mención al estudio o teoría pedagógica que la respalda. Ej: Modelo Finlandés, Teoría de Gardner, etc.].
+    * **[Nombre de la Estrategia 2]:**
+        * **Acción:** [Paso concreto y práctico a implementar].
+        * **Fundamentación:** [Breve mención al estudio o teoría pedagógica que la respalda].
+    * ...
+    """
     GEMINI_FORMATTING_INSTRUCTIONS = """**SOLO CUANDO SE SOLICITE UN ANÁLISIS ESTRUCTURADO (NO PARA PREGUNTAS DIRECTAS EN CHAT)**, formatea tu respuesta utilizando Markdown de la siguiente manera:
 
 Para análisis individuales de estudiantes:

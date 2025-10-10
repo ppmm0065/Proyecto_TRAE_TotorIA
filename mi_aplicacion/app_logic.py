@@ -1002,37 +1002,16 @@ def get_course_heatmap_data(df_course, student_name_col, asignatura_col, nota_co
     return {'subject_headers': headers, 'student_performance_rows': rows}
 
 def generate_intervention_plan_with_gemini(reporte_360_markdown, tipo_entidad, nombre_entidad):
-    # No changes
-    prompt_plan = f"""
-    Basado en el siguiente Reporte 360 para el {tipo_entidad} '{nombre_entidad}' (el cual puede incluir informacion sobre contenidos especificos en 'materias_debiles' si el reporte fue generado considerandola):
-    ```markdown
-    {reporte_360_markdown}
-    ```
-    Por favor, genera un "Plan de Intervencion" breve y concreto. El plan debe estar claramente estructurado en Markdown e incluir:
-    1.  **Objetivos Claros**: Metas especificas a alcanzar. Si el reporte menciona 'materias_debiles' o areas de dificultad que se correlacionan con la columna 'materias_debiles' de los datos originales, asegurate que los objetivos se alineen con superar esas debilidades.
-    2.  **Acciones/Estrategias Sugeridas**: Pasos concretos y practicos para implementar. Las estrategias deben ser particularmente relevantes para abordar los contenidos de las 'materias_debiles' si fueron identificados en el reporte o si son inferibles del contexto general del estudiante.
-
-    El plan debe ser conciso y enfocado en los puntos mas relevantes del reporte.
-    Formato de salida esperado (ejemplo):
-
-    ### Plan de Intervencion para {tipo_entidad.capitalize()}: {nombre_entidad}
-
-    #### Objetivos Claros
-    * [Objetivo 1, posiblemente relacionado con 'materias_debiles']
-    * [Objetivo 2]
-    * ...
-
-    #### Acciones/Estrategias Sugeridas
-    1.  **[Nombre de la Estrategia 1, enfocada en 'materias_debiles' si aplica]**:
-        * [Paso concreto 1.1]
-        * [Paso concreto 1.2]
-    2.  **[Nombre de la Estrategia 2]**:
-        * [Paso concreto 2.1]
-        * [Paso concreto 2.2]
-    * ...
-    """
+    # Obtenemos la plantilla del prompt desde la configuración de la aplicación.
+    prompt_template = current_app.config.get('PROMPT_PLAN_INTERVENCION', "Generar plan de intervención para {tipo_entidad} {nombre_entidad} basado en:\n{reporte_360_markdown}")
     
-    # --- INICIO: BLOQUE CORREGIDO ---
+    # Formateamos la plantilla con los datos específicos de la entidad y el reporte base.
+    prompt_plan = prompt_template.format(
+        reporte_360_markdown=reporte_360_markdown,
+        tipo_entidad=tipo_entidad,
+        nombre_entidad=nombre_entidad
+    )
+    
     analysis_result = analyze_data_with_gemini(
         data_string=reporte_360_markdown, 
         user_prompt=prompt_plan, 
@@ -1046,9 +1025,8 @@ def generate_intervention_plan_with_gemini(reporte_360_markdown, tipo_entidad, n
         entity_name=nombre_entidad
     )
 
-    # Devolvemos tanto el HTML como el Markdown, manteniendo la firma original de esta función específica.
+    # Devolvemos tanto el HTML como el Markdown.
     return analysis_result['html_output'], analysis_result['raw_markdown']
-
 
 def save_intervention_plan_to_db(db_path, filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_markdown):
     """

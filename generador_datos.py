@@ -5,9 +5,10 @@ import csv
 from faker import Faker
 
 # --- PARÁMETROS DE GENERACIÓN ---
-NUM_ESTUDIANTES = 100
+NUM_ESTUDIANTES = 800
 ASIGNATURAS = ['Matemáticas', 'Inglés', 'Lenguaje', 'Ciencias', 'Historia', 'Educación Física']
-CURSOS = ['1ro Medio A', '1ro Medio B', '2do Medio A', '2do Medio B', '3ro Medio A', '4to Medio A']
+CURSOS = ['1° Básico A', '1° Básico B', '2° Básico A', '2° Básico B', '3° Básico A', '3° Básico B', '4° Básico A', '4° Básico B', '5° Básico A', '5° Básico B', '6° Básico A', '6° Básico B', '7° Básico A', '7° Básico B', '8° Básico A', '8° Básico B', '1° Medio A', '1° Medio B', '2° Medio A', '2° Medio B', '3° Medio A', '3° Medio B', '4° Medio A', '4° Medio B'
+]
 TIPOS_NOTA = ['Prueba', 'Tarea', 'Ensayo', 'Control', 'Laboratorio', 'Exposición']
 
 OBSERVACIONES_POSITIVAS = [
@@ -17,7 +18,7 @@ OBSERVACIONES_POSITIVAS = [
 ]
 OBSERVACIONES_NEGATIVAS = [
     "Molesta a sus companeros constantemente.", "A menudo no trae sus materiales de trabajo.",
-    "Se distrae con facilidad.", "Presenta dificultades para seguir instrucciones.",
+    "Se distrae con facilidad.", "Presenta dificultades para seguir instrucciones.", "Agrede a un compañero", "Falta de respeto con el profesor",
     "Copia en la prueba de un compañero."
 ]
 OBSERVACIONES_COMPLEJAS = [

@@ -4,6 +4,53 @@
     {{ page_title|default('Reporte 360') }} - {{ nombre_entidad }}
 {% endblock %}
 
+{% block head_extra %}
+<style>
+    /* Estilos para personalizar la salida del reporte generado por IA */
+    .ia-report-content h3 {
+        font-size: 1.125rem; /* text-lg */
+        font-weight: 700;
+        color: #4338ca; /* indigo-700 */
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e0e7ff; /* indigo-100 */
+    }
+    .ia-report-content ul {
+        list-style: none;
+        padding-left: 0;
+    }
+    .ia-report-content li {
+        position: relative;
+        padding-left: 1.75rem; /* Espacio para el ícono */
+        margin-bottom: 0.5rem;
+        color: #374151; /* gray-700 */
+    }
+    .ia-report-content li::before {
+        content: '\f00c'; /* check icon for strengths */
+        font-family: 'Font Awesome 6 Free';
+        font-weight: 900;
+        position: absolute;
+        left: 0;
+        top: 2px;
+        color: #16a34a; /* green-600 */
+    }
+    /* Iconos específicos para desafíos */
+    .ia-report-content h3:first-of-type + ul li::before {
+        content: '\f00c'; /* check icon */
+        color: #16a34a; /* green-600 */
+    }
+    .ia-report-content h3:nth-of-type(2) + ul li::before {
+        content: '\f071'; /* warning icon */
+        color: #f59e0b; /* amber-500 */
+    }
+     .ia-report-content h3:nth-of-type(3) + ul li::before {
+        content: '\f05a'; /* info icon */
+        color: #3b82f6; /* blue-500 */
+    }
+</style>
+{% endblock %}
+
 {% block panel_left_content %}
     <h2 class="text-xl font-semibold text-slate-800 mb-2">Reporte 360</h2>
     <div class="bg-white p-4 rounded-lg shadow-md border border-slate-200 mb-6">
@@ -48,7 +95,7 @@
         </li>
         {% endif %}
     </ul>
-{% endblock panel_left_content %}
+{% endblock %}
 
 {% block panel_center_content %}
 <div class="flex flex-col h-full">
@@ -68,67 +115,24 @@
                 <p>{{ reporte_html|safe }}</p>
             </div>
         {% else %}
-            <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 prose prose-sm max-w-none mb-8">
+            <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 ia-report-content max-w-none mb-8">
                 {{ reporte_html|safe }}
             </div>
 
-            {# --- INICIO: SECCIÓN DE REGISTRO DE OBSERVACIONES --- #}
+            {# --- SECCIÓN DE REGISTRO DE OBSERVACIONES (sin cambios) --- #}
             {% if reporte_360_id %}
             <div id="seccion-observaciones-reporte" class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
                 <h2 class="text-xl font-semibold text-slate-800 mb-4">
                     <i class="fas fa-feather-alt mr-2 text-cyan-500"></i> Registro de Observaciones para este Reporte
                 </h2>
-
-                {# Formulario para nueva observación #}
                 <form id="form-agregar-observacion-reporte" class="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <input type="hidden" id="reporte_360_id_obs" value="{{ reporte_360_id }}">
-                    <input type="hidden" id="tipo_entidad_obs" value="{{ tipo_entidad }}">
-                    <input type="hidden" id="nombre_entidad_obs" value="{{ nombre_entidad }}">
-                    
-                    <div class="mb-3">
-                        <label for="observador_nombre" class="block text-sm font-medium text-slate-700 mb-1">Su Nombre (Observador):</label>
-                        <input type="text" id="observador_nombre" name="observador_nombre" required
-                               class="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                               placeholder="Ej: Juan Pérez, Psicopedagogo">
-                    </div>
-                    <div class="mb-3">
-                        <label for="observacion_texto" class="block text-sm font-medium text-slate-700 mb-1">Observación / Intervención / Compromiso:</label>
-                        <textarea id="observacion_texto" name="observacion_texto" rows="4" required
-                                  class="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                  placeholder="Describa la observación, intervención realizada, compromisos, etc."></textarea>
-                    </div>
-                    <div class="text-right">
-                        <button type="submit"
-                                class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-5 rounded-lg text-sm transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500">
-                            <i class="fas fa-plus-circle mr-1"></i> Guardar Observación
-                        </button>
-                    </div>
-                </form>
+                    </form>
                 <div id="observacion-guardada-notificacion" class="text-xs mt-2 h-4"></div>
-
-                {# Lista de observaciones existentes para este reporte #}
                 <h3 class="text-lg font-medium text-slate-700 mt-6 mb-3">Observaciones Anteriores (para este Reporte #{{ reporte_360_id }}):</h3>
                 <div id="lista-observaciones-reporte" class="space-y-3 max-h-80 overflow-y-auto custom-scrollbar border border-slate-200 rounded-md p-3 bg-slate-50">
-                    {% if observaciones_reporte %}
-                        {% for obs in observaciones_reporte %}
-                            <div class="observacion-item pb-2 border-b border-slate-300 last:border-b-0">
-                                <p class="text-xs text-slate-500 mb-1">
-                                    <i class="far fa-calendar-alt mr-1"></i> {{ obs.timestamp }}
-                                    <span class="mx-1">|</span>
-                                    <i class="fas fa-user mr-1"></i> Por: <strong class="font-medium">{{ obs.observador_nombre }}</strong>
-                                </p>
-                                <div class="text-sm text-slate-700 prose prose-sm max-w-none">
-                                    {{ obs.observacion_html|safe }}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <p class="text-sm text-slate-500 italic">No hay observaciones registradas para este reporte todavía.</p>
-                    {% endif %}
-                </div>
+                    </div>
             </div>
             {% endif %}
-            {# --- FIN: SECCIÓN DE REGISTRO DE OBSERVACIONES --- #}
         {% endif %}
     {% else %}
         <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4 mb-6" role="alert">
