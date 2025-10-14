@@ -43,13 +43,13 @@
     {% else %}
         {# SECCIÓN DE CHAT CON GEMINI #}
         <div id="advanced-chat-interface" class="flex flex-col flex-grow">
-            <div id="advanced-chat-history" class="flex-grow overflow-y-auto mb-4 p-4 border border-slate-300 rounded-lg bg-slate-50 custom-scrollbar space-y-4 min-h-[300px]">
+            <div id="advanced-chat-history" class="overflow-y-auto mb-4 p-4 border border-slate-300 rounded-lg bg-slate-50 custom-scrollbar space-y-4 h-[45vh]">
                 <p class="text-sm text-slate-500 italic initial-chat-message">Inicia la conversación con una pregunta sobre los datos del Colegio Nueva Esperanza.</p>
             </div>
-            <form id="advanced-chat-form" class="flex items-start gap-3 mt-auto">
+            <form id="advanced-chat-form" class="flex items-start gap-3">
                 <textarea id="advanced-chat-prompt" name="user_prompt_advanced_chat" rows="3"
-                          class="flex-grow px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-150 ease-in-out shadow-sm sm:text-sm"
-                          placeholder="Escribe tu pregunta o instrucción sobre los datos..."></textarea>
+                        class="flex-grow px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-150 ease-in-out shadow-sm sm:text-sm"
+                        placeholder="Escribe tu pregunta o instrucción sobre los datos..."></textarea>
                 <button type="submit" id="send-advanced-chat-button"
                         class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">
                     <i class="fas fa-paper-plane"></i> Enviar
