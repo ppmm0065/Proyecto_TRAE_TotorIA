@@ -1068,7 +1068,7 @@ def get_intervention_plans_for_entity(db_path, tipo_entidad, nombre_entidad, cur
     return plans
 
 def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, nombre_entidad):
-    # No changes
+    # No changes to the query generation part
     print(f"DEBUG: Iniciando search_web_for_support_resources (SIMULACIÓN) para {tipo_entidad} {nombre_entidad}") 
     search_queries = []
     try:
@@ -1087,12 +1087,9 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
         {plan_intervencion_markdown}
         ---
         """
-        print("DEBUG: Enviando prompt a Gemini para generar consultas de búsqueda (para simulación)...") 
         response_analisis = model_analisis.generate_content(prompt_analisis_plan)
-        
         queries_str = response_analisis.text.strip()
-        print(f"DEBUG: Respuesta cruda de Gemini para consultas (para simulación): {queries_str}") 
-
+        
         if queries_str.startswith("```python"):
             queries_str = queries_str[len("```python"):].strip()
         elif queries_str.startswith("```"):
@@ -1105,64 +1102,62 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
             if isinstance(evaluated_queries, list) and all(isinstance(q, str) for q in evaluated_queries):
                 search_queries = evaluated_queries
             else:
-                print(f"DEBUG: eval() no produjo lista de strings (simulación). Respuesta Gemini: {queries_str}") 
-                search_queries = [line.strip().replace('"', '').replace("'", "") for line in queries_str.strip("[]").split(',') if line.strip()]
-                search_queries = [q for q in search_queries if q] 
-                if not search_queries:
-                    raise ValueError("La respuesta de Gemini para las consultas (simulación) no fue una lista de Python válida ni líneas interpretables.")
-        except Exception as eval_err:
-            print(f"DEBUG: Error evaluando la respuesta de Gemini para queries (simulación): {eval_err}. Intentando parseo línea por línea.") 
+                raise ValueError("La respuesta de Gemini no fue una lista de Python válida.")
+        except Exception:
             search_queries = [line.strip().replace('"', '').replace("'", "") for line in queries_str.strip("[]").split(',') if line.strip()]
             search_queries = [q for q in search_queries if q] 
             if not search_queries:
-                print("DEBUG: Parseo línea por línea también falló o resultó en lista vacía (simulación).") 
-                return f"Error: No pude interpretar el plan de intervención para generar consultas de búsqueda (simulación). Detalle: {eval_err}"
+                return f"Error: No pude interpretar el plan de intervención para generar consultas de búsqueda (simulación)."
         
-        print(f"DEBUG: Consultas de búsqueda generadas (para simulación): {search_queries}") 
         if not search_queries:
-             print("DEBUG: La lista de search_queries está vacía después de la generación (simulación).") 
              return "Error: No se pudieron generar consultas de búsqueda a partir del plan de intervención (simulación)."
 
     except Exception as e:
-        print(f"CRITICAL DEBUG: Error mayor durante la generación de consultas (simulación): {e}") 
         traceback.print_exc()
         return f"Error crítico al generar consultas de búsqueda desde el plan (simulación): {e}"
 
     if not search_queries: 
-        print("DEBUG: Retornando porque search_queries está vacía ANTES de la simulación de recursos.") 
         return "Error: No se generaron consultas de búsqueda válidas (simulación)."
 
-    print(f"DEBUG: Procediendo a SIMULAR la búsqueda de recursos para {len(search_queries)} consultas.") 
-    
     formatted_queries_for_gemini = "\n".join([f"- {q}" for q in search_queries])
 
+    # --- INICIO: BLOQUE DE PROMPT MODIFICADO ---
     prompt_sugerencia_recursos = f"""
-    Actúa como un orientador educativo experto. Basándote en las siguientes áreas temáticas o consultas de búsqueda (derivadas de un plan de intervención para el {tipo_entidad} '{nombre_entidad}'), sugiere 2-3 ejemplos de recursos educativos online por cada tema que podrían ser útiles.
+    Actúa como un orientador educativo experto. Basándote en las siguientes áreas temáticas (derivadas de un plan de intervención para el {tipo_entidad} '{nombre_entidad}'), sugiere 2-3 ejemplos de recursos educativos online por cada tema.
 
-    Para cada recurso sugerido, proporciona:
-    1.  Un título descriptivo para el recurso (ej. "Video Explicativo sobre Fotosíntesis", "Ejercicios Interactivos de Ecuaciones").
-    2.  Un enlace ficticio o genérico (ej. "https://www.ejemplo-educativo.com/fotosintesis-video", "https://www.khanacademy.org/math/algebra/ecuaciones"). No intentes crear URLs reales y funcionales.
-    3.  Una breve descripción (1-2 líneas) de por qué ese tipo de recurso sería útil para el tema en cuestión.
-
-    Presenta toda la información en formato HTML. Utiliza etiquetas como `<h2>` para el título general ("Recursos de Apoyo Sugeridos"), `<h3>` para cada tema/consulta original, y luego `<h4>` para cada recurso sugerido, seguido de un párrafo `<p>` con la descripción y el enlace `<a>`.
+    **CRÍTICO: Debes devolver SOLAMENTE código HTML. NO incluyas frases introductorias o conclusivas fuera del HTML.**
+    Usa la siguiente estructura HTML de manera estricta:
+    1.  Para cada tema, crea un encabezado: `<h3 class="resource-topic-title">[Nombre del Tema]</h3>`
+    2.  Luego, para todos los recursos de ese tema, envuélvelos en un div: `<div class="resource-grid">`
+    3.  Cada recurso individual debe ser una tarjeta: `<div class="resource-card">`
+    4.  Dentro de la tarjeta, usa esta estructura:
+        * `<h4 class="resource-title"><i class="fas fa-link mr-2"></i>[Título Descriptivo del Recurso]</h4>` (Puedes cambiar el ícono de font-awesome si es pertinente, ej: 'fa-video', 'fa-file-alt').
+        * `<p class="resource-description">[Descripción de por qué el recurso es útil]</p>`
+        * `<a href="https://www.spanishdict.com/translate/ficticia" class="resource-button" target="_blank" rel="noopener noreferrer">Acceder al Recurso</a>`
 
     Temas/Consultas para los que sugerir recursos:
     ---
     {formatted_queries_for_gemini}
     ---
 
-    Ejemplo de formato para un tema:
-    <h3>Tema: Ejercicios de Fracciones para Primaria</h3>
-    <h4>Recurso: Plataforma de Práctica de Fracciones</h4>
-    <p>Descripción: Un sitio web con múltiples ejercicios interactivos para practicar sumas, restas, y comparaciones de fracciones, ideal para reforzar los conceptos básicos. <a href="https://www.ejemplo-educativo.com/fracciones-primaria" target="_blank" rel="noopener noreferrer">Visitar Ejemplo</a></p>
-    <h4>Recurso: Video Tutorial de Fracciones</h4>
-    <p>Descripción: Un video animado que explica de forma sencilla qué son las fracciones y cómo se operan, útil para la comprensión visual. <a href="https://www.youtube.com/ejemplo-fracciones" target="_blank" rel="noopener noreferrer">Ver Video Ejemplo</a></p>
-
-    Asegúrate que todo el output sea únicamente el HTML solicitado, sin frases introductorias o conclusivas fuera del HTML.
-    Si las consultas originales son muy pocas o muy genéricas, haz tu mejor esfuerzo para proveer sugerencias útiles.
+    **Ejemplo de salida para UN tema:**
+    <h3 class="resource-topic-title">Ejercicios de Fracciones para Primaria</h3>
+    <div class="resource-grid">
+        <div class="resource-card">
+            <h4 class="resource-title"><i class="fas fa-shapes mr-2"></i>Plataforma Interactiva de Fracciones</h4>
+            <p class="resource-description">Un sitio con ejercicios para practicar sumas, restas y comparaciones de fracciones, ideal para reforzar conceptos.</p>
+            <a href="https://www.ejemplo-educativo.com/fracciones-primaria" class="resource-button" target="_blank" rel="noopener noreferrer">Explorar Plataforma</a>
+        </div>
+        <div class="resource-card">
+            <h4 class="resource-title"><i class="fas fa-video mr-2"></i>Video Tutorial Animado</h4>
+            <p class="resource-description">Un video que explica de forma sencilla qué son las fracciones, útil para la comprensión visual del concepto.</p>
+            <a href="https://www.youtube.com/ejemplo-fracciones" class="resource-button" target="_blank" rel="noopener noreferrer">Ver Video</a>
+        </div>
+    </div>
     """
+    # --- FIN: BLOQUE DE PROMPT MODIFICADO ---
     try:
-        print("DEBUG: Enviando prompt a Gemini para SIMULAR y sugerir recursos...") 
+        print("DEBUG: Enviando prompt a Gemini para SIMULAR y sugerir recursos con nuevo formato...") 
         model_sugerencias = genai.GenerativeModel('gemini-2.5-flash')
         response_sugerencias = model_sugerencias.generate_content(prompt_sugerencia_recursos)
         final_html = response_sugerencias.text.strip()
@@ -1172,9 +1167,8 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
         if final_html.strip().endswith("```"):
             final_html = final_html.strip()[:-3]
         
-        print("DEBUG: HTML con recursos SIMULADOS generado por Gemini exitosamente.") 
+        print("DEBUG: HTML con recursos SIMULADOS (nuevo formato) generado por Gemini exitosamente.") 
         if not final_html:
-            print("DEBUG: Gemini devolvió una cadena vacía para los recursos simulados.") 
             return "Error: El modelo no pudo generar sugerencias de recursos en este momento."
         return final_html
 
