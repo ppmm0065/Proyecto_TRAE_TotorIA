@@ -14,15 +14,17 @@
 
 {% block panel_center_content %}
     {% if session.file_summary %}
-        <div class="flex justify-between items-center mb-8">
+        <div class="grid grid-cols-3 items-center mb-8">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Dashboard Académico Escolar</h1>
                 <p class="text-sm text-slate-500">Sistema de gestión y seguimiento de estudiantes</p>
             </div>
-            <div class="text-right">
-                <p class="text-xs text-slate-500">Última actualización</p>
-                <p class="font-semibold text-purple-700">{{ now.strftime('%d-%m-%Y') }}</p>
+            <div class="flex justify-center">
+                <a href="{{ url_for('main.chat_avanzado') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
+                    <i class="fas fa-brain mr-2"></i> Consulta con IA
+                </a>
             </div>
+            <div></div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
             <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-blue-500">

@@ -75,6 +75,17 @@
         }
         #entity-selector-modal { transition: opacity 0.3s ease-in-out; }
         .modal-content { transition: transform 0.3s ease-in-out; }
+
+        .clear-btn {
+            opacity: 0.6;
+            transition: all 0.2s ease-in-out;
+        }
+        .clear-btn:hover {
+            opacity: 1;
+            transform: scale(1.1);
+            color: #e74c3c; /* Un tono de rojo para la acción de eliminar */
+        }
+
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -92,18 +103,25 @@
             <div class="flex-grow">
                 {% if session.uploaded_filename %}
                     <div class="menu-header">
-                        <p class="text-xs text-slate-400">Archivo Activo:</p>
-                        <p class="font-semibold text-white break-words">{{ session.uploaded_filename }}</p>
-                        <a href="{{ url_for('main.clear_session_file') }}" class="mt-3 block w-full text-center bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded-lg text-sm transition duration-300 ease-in-out">
-                            <i class="fas fa-times-circle mr-1"></i> Limpiar y Cargar Nuevo
-                        </a>
+                        <p class="text-xs text-slate-400 mb-2">Archivo Activo:</p>
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center min-w-0">
+                                <i class="fas fa-file-csv fa-fw text-xl" style="color: var(--amarillo-oro);"></i>
+                                <span class="font-semibold text-white break-words truncate ml-2" title="{{ session.uploaded_filename }}">
+                                    {{ session.uploaded_filename }}
+                                </span>
+                            </div>
+                            <a href="{{ url_for('main.clear_session_file') }}" class="clear-btn text-2xl font-light ml-2 flex-shrink-0" title="Limpiar y Cargar Nuevo">
+                                &times;
+                            </a>
+                        </div>
                     </div>
                 {% else %}
                     <div class="menu-header">
                         <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data">
                             <label for="datafile" class="block text-sm font-medium text-slate-300 mb-2">Cargar Archivo de Estudiantes:</label>
                             <input type="file" id="datafile" name="datafile" accept=".csv" required
-                                   class="block w-full text-xs text-slate-300 border border-slate-500 rounded-lg cursor-pointer bg-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-400 file:text-slate-800 hover:file:bg-yellow-300">
+                                class="block w-full text-xs text-slate-300 border border-slate-500 rounded-lg cursor-pointer bg-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-400 file:text-slate-800 hover:file:bg-yellow-300">
                             <button type="submit" class="w-full mt-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
                                 <i class="fas fa-cloud-upload-alt mr-2"></i> Cargar y Analizar
                             </button>
@@ -134,7 +152,6 @@
                             <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-clipboard-list fa-fw"></i><span>Generar Plan de Intervención</span></li>
                             <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-lightbulb fa-fw"></i><span>Generar Recursos de Apoyo</span></li>
                         {% endif %}
-                        <li><a href="{{ url_for('main.chat_avanzado') }}" class="menu-item menu-item-action {% if 'chat_avanzado' in request.endpoint %}active{% endif %}"><i class="fas fa-brain fa-fw"></i> Consulta con IA</a></li>
                     </ul>
                 </nav>
             </div>
