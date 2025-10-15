@@ -115,7 +115,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4"> 
                      <div class="bg-red-50 rounded-lg shadow border border-red-200 hover:bg-red-100 transition-colors duration-200">
                         {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
-                            <a href="{{ url_for('main.detalle_entidad', tipo='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
+                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
                         {% endif %}
@@ -138,7 +138,7 @@
                     </div>
                     <div class="bg-orange-50 rounded-lg shadow border border-orange-200 hover:bg-orange-100 transition-colors duration-200">
                         {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
-                            <a href="{{ url_for('main.detalle_entidad', tipo='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
+                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
                         {% endif %}

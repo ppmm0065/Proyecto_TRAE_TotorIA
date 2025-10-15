@@ -448,8 +448,8 @@ def api_search_students():
     except Exception as e: traceback.print_exc(); return jsonify({"error": "Error procesando la búsqueda de estudiantes."}), 500
 
 # --- Ruta de Detalle ---
-@main_bp.route('/detalle/<tipo>/<path:valor_codificado>', methods=['GET'])
-def detalle_entidad(tipo, valor_codificado): 
+@main_bp.route('/detalle/<tipo_entidad>/<path:valor_codificado>', methods=['GET'])
+def detalle_entidad(tipo_entidad, valor_codificado): 
     try: 
         valor = unquote(valor_codificado) 
     except Exception as e: 
@@ -467,16 +467,16 @@ def detalle_entidad(tipo, valor_codificado):
     
     # --- (El resto de la lógica de sesión y BBDD no cambia) ---
     reporte_360_disponible_para_plan = (session.get('reporte_360_markdown') and
-        session.get('reporte_360_entidad_tipo') == tipo and
+        session.get('reporte_360_entidad_tipo') == tipo_entidad and
         session.get('reporte_360_entidad_nombre') == valor)
     historial_planes = get_intervention_plans_for_entity(
-        db_path=current_app.config['DATABASE_FILE'], tipo_entidad=tipo, nombre_entidad=valor,
+        db_path=current_app.config['DATABASE_FILE'], tipo_entidad=tipo_entidad, nombre_entidad=valor,
         current_filename=session.get('uploaded_filename', 'N/A'))
     reportes_360_con_observaciones = [] # (La lógica para obtener reportes y observaciones no cambia)
 
-    chat_history_key = f'chat_history_detalle_{tipo}_{valor}' 
+    chat_history_key = f'chat_history_detalle_{tipo_entidad}_{valor}' 
     context = { 
-        'tipo_entidad': tipo, 'nombre_entidad': valor, 'filename': session.get('uploaded_filename', 'N/A'), 
+        'tipo_entidad': tipo_entidad, 'nombre_entidad': valor, 'filename': session.get('uploaded_filename', 'N/A'), 
         'datos_dashboard': {}, 'error_message': None, 'chat_history_detalle': session.get(chat_history_key, []), 
         'reporte_360_disponible_para_plan': reporte_360_disponible_para_plan,
         'historial_planes_intervencion': historial_planes,
@@ -490,7 +490,7 @@ def detalle_entidad(tipo, valor_codificado):
     
     try:
         valor_normalizado = valor.strip().lower()
-        if tipo == 'alumno':
+        if tipo_entidad == 'alumno':
             # Filtrar todas las notas del alumno
             datos_alumno_df = df_original[df_original[nombre_col].astype(str).str.strip().str.lower() == valor_normalizado]
             if not datos_alumno_df.empty:
@@ -518,7 +518,7 @@ def detalle_entidad(tipo, valor_codificado):
                 # Gráfico comparativo (ahora llama a la función refactorizada)
                 context['datos_dashboard']['student_vs_course_level_chart_data'] = get_student_vs_course_level_averages(df_original, valor, nombre_curso_alumno)
 
-        elif tipo == 'curso':
+        elif tipo_entidad == 'curso':
             datos_curso_df = df_original[df_original[curso_col].astype(str).str.strip().str.lower() == valor_normalizado]
             if not datos_curso_df.empty:
                 df_alumnos_unicos_curso = datos_curso_df.drop_duplicates(subset=[nombre_col])
@@ -871,7 +871,7 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
     df_global = get_dataframe_from_session_file()
     if df_global is None or df_global.empty: 
         flash('No se pudieron cargar los datos del archivo CSV.', 'danger')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     
     df_entidad = pd.DataFrame()
     try:
@@ -885,16 +885,16 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
             return redirect(url_for('main.index'))
     except KeyError as e: 
         flash(f"Error de configuración: La columna '{e}' no se encuentra.", 'danger')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     
     if df_entidad.empty: 
         flash(f'No se encontraron datos para {tipo_entidad} "{nombre_entidad}".', 'warning')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     
     datos_entidad_string = load_data_as_string(session.get('current_file_path'), specific_entity_df=df_entidad)
     if datos_entidad_string.startswith("Error:"): 
         flash(f'Error al cargar datos para el reporte: {datos_entidad_string}', 'danger')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     
     # Usamos la nueva constante del config para el prompt, formateándola con los datos de la entidad.
     prompt_template = current_app.config.get('PROMPT_REPORTE_360', "Generar reporte para {tipo_entidad} {nombre_entidad}")
@@ -913,7 +913,7 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
 
     if analysis_result.get('error'):
         flash(f"Error al generar el Reporte 360: {analysis_result['error']}", 'danger')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
 
     reporte_html = analysis_result['html_output']
     reporte_markdown = analysis_result['raw_markdown']
@@ -963,7 +963,7 @@ def descargar_reporte_360_html(tipo_entidad, valor_codificado):
     if condicion_tipo_falla or condicion_nombre_falla or condicion_markdown_falla:
         flash_message = 'No hay un reporte 360 activo en sesión para esta entidad o los datos no coinciden. Por favor, genere el reporte primero.'
         flash(flash_message, 'warning')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad_url)))
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad_url)))
     reporte_markdown_contenido = session.get('reporte_360_markdown')
     reporte_html_contenido = markdown.markdown(reporte_markdown_contenido, extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
     html_para_descarga = f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte 360 - {nombre_entidad_url}</title><style>body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; margin: 20px; line-height: 1.6; color: #333; }} h1 {{ font-size: 1.8em; color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top:0; }} .report-header {{ margin-bottom: 20px; font-size: 0.9em; color: #555; padding-bottom:10px; border-bottom: 1px dashed #ccc;}} .report-header strong {{ color: #000; }} .report-content {{ margin-top: 20px; }} table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; font-size: 0.9em; }} th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }} th {{ background-color: #f2f2f2; font-weight: bold; }} ul, ol {{ padding-left: 20px; }} li {{ margin-bottom: 5px; }} .report-content h1 {{ font-size: 1.6em; }} .report-content h2 {{ font-size: 1.4em; }} .report-content h3 {{ font-size: 1.2em; }}</style></head><body><h1>Reporte 360</h1><div class="report-header"><strong>Entidad:</strong> {nombre_entidad_url} ({tipo_entidad.capitalize()})<br><strong>Archivo de Datos Origen:</strong> {session.get('uploaded_filename', 'N/A')}<br><strong>Generado el:</strong> {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</div><div class="report-content">{reporte_html_contenido}</div></body></html>"""
@@ -1021,8 +1021,8 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
     if not (session.get('reporte_360_markdown') and
             session.get('reporte_360_entidad_tipo') == tipo_entidad and
             session.get('reporte_360_entidad_nombre') == nombre_entidad):
-        flash('Primero debes generar el "Reporte 360" para esta entidad antes de crear un Plan de Intervención.', 'warning')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        flash('Primero debes generar el "Reporte 360" para esta entidad.', 'warning')
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
 
     reporte_360_base_md = session['reporte_360_markdown']
 
@@ -1033,23 +1033,21 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
     )
 
     if isinstance(plan_html, str) and plan_html.startswith("Error:"):
-        flash(f"Error al generar el Plan de Intervención para {nombre_entidad}: {plan_html.replace('Error: ', '')}", 'danger')
-        return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+        flash(f"Error al generar el Plan de Intervención: {plan_html.replace('Error: ', '')}", 'danger')
+        return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
 
     db_path = current_app.config['DATABASE_FILE']
     current_csv_filename = session.get('uploaded_filename', 'N/A')
     
-    # --- INICIO: BLOQUE CORREGIDO ---
-    # Llama a la función de guardado y recibe directamente el ID del nuevo plan.
     last_plan_id = save_intervention_plan_to_db(db_path, current_csv_filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_md)
 
     if last_plan_id:
         flash('Plan de Intervención generado y guardado exitosamente.', 'success')
-        if embedding_model_instance and reload_followup_vector_store(current_app.config):
-            flash('Índice de seguimientos (incluyendo planes) actualizado.', 'info')
+        # --- LÍNEA AÑADIDA ---
+        # Guardamos el ID del plan recién creado en la sesión.
+        session['current_intervention_plan_id'] = last_plan_id
     else:
         flash('Plan de Intervención generado, pero hubo un error al guardarlo en la base de datos.', 'warning')
-# --- FIN: BLOQUE CORREGIDO ---
 
     session['current_intervention_plan_html'] = plan_html
     session['current_intervention_plan_markdown'] = plan_markdown 
@@ -1058,7 +1056,6 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
     session['current_intervention_plan_for_entity_name'] = nombre_entidad
     session.modified = True
     
-    # Redirige usando el ID obtenido de forma fiable. Si falla, usa 'current'.
     plan_ref_for_url = last_plan_id if last_plan_id is not None else 'current'
 
     return redirect(url_for('main.visualizar_plan_intervencion', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad), plan_ref=plan_ref_for_url))
@@ -1084,7 +1081,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
             plan_date = session.get('current_intervention_plan_date', plan_date)
         else:
             flash('No hay un plan de intervención actual en sesión para esta entidad o los datos no coinciden.', 'warning')
-            return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+            return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     else: 
         try:
             plan_id_to_load = int(plan_ref)
@@ -1105,14 +1102,14 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                     plan_date = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M:%S')
                 else:
                     flash(f'No se encontró el plan de intervención con ID {plan_id_to_load} para esta entidad y archivo.', 'warning')
-                    return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+                    return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
         except ValueError:
             flash('Referencia de plan no válida.', 'danger')
-            return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+            return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
         except Exception as e:
             flash(f'Error al cargar el plan de intervención: {str(e)}', 'danger')
             traceback.print_exc()
-            return redirect(url_for('main.detalle_entidad', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+            return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
 
 
     return render_template('visualizar_plan_intervencion.html',
@@ -1168,7 +1165,7 @@ def generar_recursos_apoyo(tipo_entidad, valor_codificado, plan_ref):
 
     if not plan_markdown_content: 
         flash('No se pudo obtener el contenido del plan de intervención.', 'danger')
-        return redirect(url_for('main.visualizar_plan_intervencion', tipo=tipo_entidad, valor_codificado=quote(nombre_entidad), plan_ref=plan_ref))
+        return redirect(url_for('main.visualizar_plan_intervencion', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad), plan_ref=plan_ref))
 
     recursos_html_output = search_web_for_support_resources(plan_markdown_content, tipo_entidad, nombre_entidad)
 

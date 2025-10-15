@@ -35,61 +35,46 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
         
-        /* --- NUEVOS ESTILOS PARA EL MENÚ --- */
         #side-menu {
             background-color: var(--azul-piedra);
             color: var(--texto-claro);
             display: flex;
             flex-direction: column;
             width: 280px;
-            height: calc(100vh - 5rem); /* Altura completa menos el header */
-            transition: width 0.3s ease-in-out;
-        }
-        .menu-header {
-            padding: 1.5rem 1.25rem;
-            border-bottom: 1px solid var(--azul-piedra-claro);
+            height: calc(100vh - 5rem);
         }
         .menu-item {
-            display: flex;
-            align-items: center;
-            padding: 1rem 1.25rem;
-            color: var(--texto-oscuro);
-            font-weight: 500;
-            transition: all 0.2s ease-in-out;
-            border-left: 4px solid transparent;
+            display: flex; align-items: center; padding: 0.9rem 1.25rem;
+            color: var(--texto-oscuro); font-weight: 500;
+            transition: all 0.2s ease-in-out; border-left: 4px solid transparent;
         }
-        .menu-item:hover {
-            background-color: var(--azul-piedra-claro);
-            color: white;
+        .menu-item-action { cursor: pointer; }
+        .menu-item-action:hover {
+            background-color: var(--azul-piedra-claro); color: white;
             border-left-color: var(--amarillo-oro-hover);
         }
+        .menu-item-disabled {
+            display: flex; align-items: center; padding: 0.9rem 1.25rem;
+            color: #7f8c8d; cursor: not-allowed; opacity: 0.6;
+            border-left: 4px solid transparent;
+        }
+        .menu-item-disabled i.fa-fw { color: #7f8c8d; }
         .menu-item.active {
-            background-color: var(--azul-piedra-claro);
-            color: white;
-            font-weight: 600;
-            border-left-color: var(--amarillo-oro);
+            background-color: var(--azul-piedra-claro); color: white;
+            font-weight: 600; border-left-color: var(--amarillo-oro);
         }
-        .menu-item i.fa-fw {
-            width: 1.25rem;
-            margin-right: 0.75rem;
-            color: var(--amarillo-oro);
-        }
+        .menu-item i.fa-fw { width: 1.25rem; margin-right: 0.75rem; color: var(--amarillo-oro); }
         .menu-section-title {
-            padding: 1.5rem 1.25rem 0.5rem;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--texto-oscuro);
-            font-weight: 600;
+            padding: 1.5rem 1.25rem 0.5rem; font-size: 0.75rem;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--texto-oscuro); font-weight: 600;
         }
         .user-profile {
-            margin-top: auto;
-            border-top: 1px solid var(--azul-piedra-claro);
-            padding: 1rem 1.25rem;
-            display: flex;
-            align-items: center;
+            margin-top: auto; border-top: 1px solid var(--azul-piedra-claro);
+            padding: 1rem 1.25rem; display: flex; align-items: center;
         }
-        /* --- FIN NUEVOS ESTILOS --- */
+        #entity-selector-modal { transition: opacity 0.3s ease-in-out; }
+        .modal-content { transition: transform 0.3s ease-in-out; }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -104,7 +89,6 @@
     <main id="main-dashboard-container" class="flex flex-1 w-full">
 
         <aside id="side-menu" class="flex-shrink-0 custom-scrollbar">
-            
             <div class="flex-grow">
                 {% if session.uploaded_filename %}
                     <div class="menu-header">
@@ -116,77 +100,110 @@
                     </div>
                 {% else %}
                     <div class="menu-header">
-                        <p class="font-semibold text-white">Comenzar Análisis</p>
-                        <p class="text-xs text-slate-400">Carga un archivo para empezar.</p>
+                        <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data">
+                            <label for="datafile" class="block text-sm font-medium text-slate-300 mb-2">Cargar Archivo de Estudiantes:</label>
+                            <input type="file" id="datafile" name="datafile" accept=".csv" required
+                                   class="block w-full text-xs text-slate-300 border border-slate-500 rounded-lg cursor-pointer bg-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-yellow-400 file:text-slate-800 hover:file:bg-yellow-300">
+                            <button type="submit" class="w-full mt-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                                <i class="fas fa-cloud-upload-alt mr-2"></i> Cargar y Analizar
+                            </button>
+                        </form>
                     </div>
                 {% endif %}
-
                 <nav>
                     <ul>
-                        <li><a href="{{ url_for('main.index') }}" class="menu-item {% if request.endpoint == 'main.index' %}active{% endif %}"><i class="fas fa-home fa-fw"></i> Inicio / Dashboard</a></li>
+                        <li><a href="{{ url_for('main.index') }}" class="menu-item menu-item-action {% if request.endpoint == 'main.index' %}active{% endif %}"><i class="fas fa-home fa-fw"></i> Inicio / Dashboard</a></li>
+                        <li><button id="open-entity-selector-btn" class="menu-item w-full text-left menu-item-action"><i class="fas fa-search fa-fw"></i> Buscar Alumno / Curso</button></li>
                         
-                        {% if not session.uploaded_filename %}
-                        <li>
-                            <div class="px-5 py-4">
-                                <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data">
-                                    <label for="datafile" class="block text-sm font-medium text-slate-300 mb-2">Archivo de Estudiantes:</label>
-                                    <input type="file" id="datafile" name="datafile" accept=".csv" required
-                                           class="block w-full text-xs text-slate-300 border border-slate-500 rounded-lg cursor-pointer bg-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-amarillo-oro file:text-azul-piedra hover:file:bg-amarillo-oro-hover">
-                                    <button type="submit" class="w-full mt-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                                        <i class="fas fa-cloud-upload-alt mr-2"></i> Cargar y Analizar
-                                    </button>
-                                </form>
-                            </div>
-                        </li>
-                        {% endif %}
-
                         <div class="menu-section-title">Herramientas</div>
-                        <li><a href="#" class="menu-item"><i class="fas fa-file-alt fa-fw"></i> Documentos de Contexto</a></li>
-                        <li><a href="{{ url_for('main.chat_avanzado') }}" class="menu-item {% if 'chat_avanzado' in request.endpoint %}active{% endif %}"><i class="fas fa-brain fa-fw"></i> Consulta con IA </a></li>
-                        <li><a href="#" class="menu-item"><i class="fas fa-file-invoice fa-fw"></i> Generar Reportes</a></li>
                         
-                        {% if session.consumo_sesion is defined %}
-                        <div class="menu-section-title">Estimación de Consumo</div>
-                        <div class="px-5 py-3 text-sm">
-                            <div class="flex justify-between items-center text-slate-300">
-                                <span><i class="fas fa-coins fa-fw mr-1 text-yellow-400"></i>Total Tokens:</span>
-                                <strong id="session-total-tokens" class="font-mono text-white">{{ session.consumo_sesion.total_tokens|int }}</strong>
-                            </div>
-                            <div class="flex justify-between items-center mt-1 text-slate-300">
-                                <span><i class="fas fa-dollar-sign fa-fw mr-1 text-green-400"></i>Costo Estimado:</span>
-                                <strong id="session-total-cost" class="font-mono text-white">US$ {{ "{:,.6f}".format(session.consumo_sesion.total_cost) }}</strong>
-                            </div>
-                        </div>
+                        {% if request.endpoint == 'main.detalle_entidad' or 'generar_reporte_360' in request.endpoint or 'visualizar_plan_intervencion' in request.endpoint or 'generar_recursos_apoyo' in request.endpoint %}
+                            <li><a href="{{ url_for('main.generar_reporte_360', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad) }}" class="menu-item menu-item-action {% if 'generar_reporte_360' in request.endpoint %}active{% endif %}"><i class="fas fa-file-invoice fa-fw"></i> Generar Reporte 360</a></li>
+                            {% if session.reporte_360_markdown and session.reporte_360_entidad_nombre == nombre_entidad %}
+                                <li><a href="{{ url_for('main.generar_plan_intervencion', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad) }}" class="menu-item menu-item-action {% if 'plan_intervencion' in request.endpoint %}active{% endif %}"><i class="fas fa-clipboard-list fa-fw"></i> Generar Plan de Intervención</a></li>
+                            {% else %}
+                                <li class="menu-item menu-item-disabled" title="Genera un Reporte 360 primero"><i class="fas fa-clipboard-list fa-fw"></i><span>Generar Plan de Intervención</span></li>
+                            {% endif %}
+                            {% if 'visualizar_plan_intervencion' in request.endpoint and request.view_args.get('plan_ref') %}
+                                <li><a href="{{ url_for('main.generar_recursos_apoyo', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad, plan_ref=request.view_args.get('plan_ref')) }}" class="menu-item menu-item-action {% if 'recursos_apoyo' in request.endpoint %}active{% endif %}"><i class="fas fa-lightbulb fa-fw"></i> Generar Recursos de Apoyo</a></li>
+                            {% else %}
+                                <li class="menu-item menu-item-disabled" title="Genera y visualiza un Plan de Intervención primero"><i class="fas fa-lightbulb fa-fw"></i><span>Generar Recursos de Apoyo</span></li>
+                            {% endif %}
+                        {% else %}
+                            <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-file-invoice fa-fw"></i><span>Generar Reporte 360</span></li>
+                            <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-clipboard-list fa-fw"></i><span>Generar Plan de Intervención</span></li>
+                            <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-lightbulb fa-fw"></i><span>Generar Recursos de Apoyo</span></li>
                         {% endif %}
+                        <li><a href="{{ url_for('main.chat_avanzado') }}" class="menu-item menu-item-action {% if 'chat_avanzado' in request.endpoint %}active{% endif %}"><i class="fas fa-brain fa-fw"></i> Consulta con IA</a></li>
                     </ul>
                 </nav>
             </div>
             
             <div class="user-profile">
                 <img src="https://i.pravatar.cc/40?u=carolina" alt="Avatar" class="h-10 w-10 rounded-full mr-3">
-                <div>
-                    <p class="font-semibold text-white">Usuario NN</p>
-                    <p class="text-xs text-slate-400">Docente</p>
-                </div>
+                <div><p class="font-semibold text-white">Usuario NN</p><p class="text-xs text-slate-400">Docente</p></div>
             </div>
         </aside>
+        
         <section id="panel_center" class="flex-grow bg-slate-100 p-6 custom-scrollbar">
-            {% block panel_center_content %}
-                 <h2 class="text-lg font-semibold text-slate-700 mb-4">Panel Central (Base)</h2>
-                <div class="h-64 border-2 border-dashed border-slate-300 rounded-md p-4 text-slate-400 flex items-center justify-center">
-                    Contenido Central (Base)
-                </div>
-            {% endblock panel_center_content %}
+            {% block panel_center_content %}{% endblock %}
         </section>
-
-        <aside id="panel_right" class="w-80 bg-white p-4 border-l border-slate-200 shadow-sm custom-scrollbar flex-shrink-0">
-             {% block panel_right_content %}
-                {% endblock panel_right_content %}
-        </aside>
     </main>
 
+    <div id="entity-selector-modal" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-[100] hidden opacity-0">
+        <div class="modal-content transform -translate-y-10 bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="flex justify-between items-center p-4 border-b"><h2 class="text-xl font-bold text-slate-800">Seleccionar Entidad</h2><button id="close-entity-selector-btn" class="text-slate-500 hover:text-red-600 text-2xl">&times;</button></div>
+            <div class="p-6 flex-grow overflow-y-auto"><div class="mb-4 border-b border-gray-200"><nav class="flex space-x-4" aria-label="Tabs"><button id="tab-alumno" class="px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-indigo-500 text-indigo-600">Buscar Alumno</button><button id="tab-curso" class="px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Seleccionar Curso</button></nav></div><div id="tab-content-alumno"><label for="modal-search-student" class="block text-sm font-medium text-slate-700 mb-1">Nombre del Estudiante:</label><input type="text" id="modal-search-student" class="w-full p-2 border border-slate-300 rounded-lg" placeholder="Escribe 2 o más letras para buscar..."><div id="modal-student-suggestions" class="mt-2 border rounded-md bg-white max-h-64 overflow-y-auto z-20 shadow-lg"></div></div><div id="tab-content-curso" class="hidden"><label for="modal-select-course" class="block text-sm font-medium text-slate-700 mb-1">Selecciona un Curso de la Lista:</label><select id="modal-select-course" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select></div></div>
+            <div class="p-4 bg-gray-50 border-t flex justify-end"><button id="modal-view-dashboard-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg disabled:bg-gray-400" disabled>Ver Dashboard</button></div>
+        </div>
+    </div>
+
     {% block scripts %}
-    {% endblock scripts %}
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const modal = document.getElementById('entity-selector-modal');
+        const openBtn = document.getElementById('open-entity-selector-btn');
+        const closeBtn = document.getElementById('close-entity-selector-btn');
+        const tabAlumno = document.getElementById('tab-alumno');
+        const tabCurso = document.getElementById('tab-curso');
+        const contentAlumno = document.getElementById('tab-content-alumno');
+        const contentCurso = document.getElementById('tab-content-curso');
+        const studentInput = document.getElementById('modal-search-student');
+        const studentSuggestions = document.getElementById('modal-student-suggestions');
+        const courseSelect = document.getElementById('modal-select-course');
+        const viewDashboardBtn = document.getElementById('modal-view-dashboard-btn');
+        let selectedEntityType = 'alumno';
+        let selectedEntityValue = '';
+        let studentSearchDebounceTimer;
+
+        function openModal() { if (modal) { modal.classList.remove('hidden'); setTimeout(() => { modal.classList.remove('opacity-0'); modal.querySelector('.modal-content').classList.remove('-translate-y-10'); }, 10); loadCoursesToModal(); } }
+        function closeModal() { if (modal) { modal.classList.add('opacity-0'); modal.querySelector('.modal-content').classList.add('-translate-y-10'); setTimeout(() => modal.classList.add('hidden'), 300); } }
+
+        openBtn.addEventListener('click', openModal);
+        closeBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        tabAlumno.addEventListener('click', () => { selectedEntityType = 'alumno'; contentAlumno.classList.remove('hidden'); contentCurso.classList.add('hidden'); tabAlumno.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-indigo-500 text-indigo-600'; tabCurso.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'; validateSelection(); });
+        tabCurso.addEventListener('click', () => { selectedEntityType = 'curso'; contentCurso.classList.remove('hidden'); contentAlumno.classList.add('hidden'); tabCurso.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-indigo-500 text-indigo-600'; tabAlumno.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'; validateSelection(); });
+
+        function loadCoursesToModal() { fetch("{{ url_for('main.api_get_courses') }}").then(res => res.json()).then(data => { courseSelect.innerHTML = '<option value="" selected disabled>-- Selecciona un curso --</option>'; data.forEach(course => { const option = document.createElement('option'); option.value = course; option.textContent = course; courseSelect.appendChild(option); }); }); }
+        
+        studentInput.addEventListener('input', () => { clearTimeout(studentSearchDebounceTimer); const searchTerm = studentInput.value.trim(); selectedEntityValue = ''; validateSelection(); if (searchTerm.length < 2) { studentSuggestions.innerHTML = ''; return; } studentSuggestions.innerHTML = '<div class="p-2 text-sm text-slate-500">Buscando...</div>'; studentSearchDebounceTimer = setTimeout(() => { fetch(`{{ url_for('main.api_search_students') }}?term=${encodeURIComponent(searchTerm)}`).then(res => res.json()).then(data => { studentSuggestions.innerHTML = ''; if (data.length > 0) { data.forEach(name => { const div = document.createElement('div'); div.className = 'p-2 text-sm cursor-pointer hover:bg-indigo-50'; div.textContent = name; div.addEventListener('click', () => { studentInput.value = name; selectedEntityValue = name; studentSuggestions.innerHTML = ''; validateSelection(); }); studentSuggestions.appendChild(div); }); } else { studentSuggestions.innerHTML = '<div class="p-2 text-sm text-slate-500">No se encontraron estudiantes.</div>'; } }); }, 350); });
+        
+        courseSelect.addEventListener('change', () => { selectedEntityValue = courseSelect.value; validateSelection(); });
+
+        function validateSelection() { let isValid = false; if (selectedEntityType === 'alumno' && studentInput.value && studentInput.value === selectedEntityValue) { isValid = true; } else if (selectedEntityType === 'curso' && courseSelect.value) { selectedEntityValue = courseSelect.value; isValid = true; } else { selectedEntityValue = ''; } viewDashboardBtn.disabled = !isValid; }
+        
+        viewDashboardBtn.addEventListener('click', () => {
+            if (!viewDashboardBtn.disabled) {
+                const baseUrl = "{{ url_for('main.detalle_entidad', tipo_entidad='TYPE_PLACEHOLDER', valor_codificado='VALUE_PLACEHOLDER') }}";
+                const finalUrl = baseUrl.replace('TYPE_PLACEHOLDER', selectedEntityType).replace('VALUE_PLACEHOLDER', encodeURIComponent(selectedEntityValue));
+                window.location.href = finalUrl;
+            }
+        });
+    });
+    </script>
+    {% endblock %}
 
 </body>
 </html>
