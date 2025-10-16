@@ -54,9 +54,9 @@
         </div>
 
         <div class="flex justify-center">
-            <a href="#chat-detalle-section" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
-                <i class="fas fa-brain mr-2"></i> Consulta con IA
-            </a>
+         <a href="#chat-detalle-section" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
+            <i class="fas fa-gem mr-2"></i> Consulta con IA
+        </a>   
         </div>
 
         <div class="flex justify-end">
@@ -200,6 +200,15 @@
         const chatHistoryDetalleDiv = document.getElementById('chat-history-detalle');
         const sendChatDetalleButton = document.getElementById('send-chat-detalle');
         
+        if (chatPromptDetalleInput && sendChatDetalleButton) {
+            chatPromptDetalleInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendChatDetalleButton.click();
+                }
+            });
+        }
+
         function escapeHtml(unsafe) { 
             if (typeof unsafe !== 'string') return '';
             return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");

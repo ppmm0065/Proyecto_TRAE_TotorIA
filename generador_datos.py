@@ -91,7 +91,7 @@ def generar_datos():
     ]
     df = df[columnas_ordenadas]
 
-    nombre_archivo = 'datos_completos_100_estudiantes.csv'
+    nombre_archivo = 'datos_completos_estudiantes.csv'
     
     # --- LÍNEA CORREGIDA ---
     # Forzamos el separador de coma (sep=',') y la codificación utf-8-sig para máxima compatibilidad.

@@ -206,4 +206,20 @@
         }
     });
 </script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const advancedChatInput = document.getElementById('advanced-chat-prompt');
+        const advancedSendButton = document.getElementById('send-advanced-chat-button');
+
+        if (advancedChatInput && advancedSendButton) {
+            advancedChatInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    advancedSendButton.click();
+                }
+            });
+        }
+    });
+</script>
+
 {% endblock scripts %}
