@@ -573,9 +573,6 @@ def api_detalle_chat():
     if not all([tipo_entidad, nombre_entidad, user_prompt]):
         return jsonify({"error": "Faltan parámetros."}), 400
 
-    if not session.get('current_file_path'):
-        return jsonify({"error": "No hay archivo CSV cargado."}), 400
-
     df_global = get_dataframe_from_session_file()
     if df_global is None or df_global.empty:
         return jsonify({"error": "No se pudo cargar el DataFrame."}), 500
@@ -590,107 +587,72 @@ def api_detalle_chat():
         elif tipo_entidad == 'alumno':
             df_entidad = df_global[df_global[current_app.config['NOMBRE_COL']].astype(str).str.strip().str.lower() == nombre_entidad_normalizado]
     except Exception as e:
-        traceback.print_exc()
         return jsonify({"error": f"Error al filtrar datos para la entidad: {str(e)}"}), 500
 
     if not df_entidad.empty:
         nombre_col = current_app.config['NOMBRE_COL']
         nota_col = current_app.config['NOTA_COL']
         asignatura_col = current_app.config['ASIGNATURA_COL']
+        promedio_col = current_app.config['PROMEDIO_COL']
 
-        # --- LÓGICA DE INTENCIONES REFINADA Y EN ORDEN DE PRIORIDAD ---
+        # --- INICIO: Motor de Intenciones CORREGIDO Y REORDENADO ---
 
-        # INTENCIÓN 1 (Más Específica): PREGUNTAS SOBRE ASIGNATURAS
-        # FIX: La condición ahora es más estricta para no capturar preguntas sobre "promedio" en general.
-        if any(kw in prompt_lower for kw in ['asignatura', 'materia', 'ramo']):
-            print("DEBUG: Intención de ASIGNATURA detectada.")
-            if tipo_entidad == 'curso':
-                promedios_asignaturas = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
-                if not promedios_asignaturas.empty:
-                    if any(kw in prompt_lower for kw in ['mejor', 'mayor', 'más alto']):
-                        mejor_key = promedios_asignaturas.idxmax()
-                        response_md = f"La asignatura con el mejor rendimiento en {nombre_entidad} es **{mejor_key}** con un promedio de **{promedios_asignaturas.max():.2f}**."
-                        return jsonify(crear_respuesta_directa(response_md))
-                    elif any(kw in prompt_lower for kw in ['peor', 'menor', 'más bajo']):
-                        peor_key = promedios_asignaturas.idxmin()
-                        response_md = f"La asignatura con el rendimiento más bajo en {nombre_entidad} es **{peor_key}** con un promedio de **{promedios_asignaturas.min():.2f}**."
-                        return jsonify(crear_respuesta_directa(response_md))
-            elif tipo_entidad == 'alumno':
-                alumno_notas_promedio = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
-                if not alumno_notas_promedio.empty:
-                    if any(kw in prompt_lower for kw in ['mejor', 'mayor', 'más alto']):
-                        mejor_key = alumno_notas_promedio.idxmax()
-                        response_md = f"La asignatura con el mejor promedio para {nombre_entidad} es **{mejor_key}** con una nota de **{alumno_notas_promedio.max():.2f}**."
-                        return jsonify(crear_respuesta_directa(response_md))
-                    elif any(kw in prompt_lower for kw in ['peor', 'menor', 'más bajo']):
-                        peor_key = alumno_notas_promedio.idxmin()
-                        response_md = f"La asignatura con el promedio más bajo para {nombre_entidad} es **{peor_key}** con una nota de **{alumno_notas_promedio.min():.2f}**."
-                        return jsonify(crear_respuesta_directa(response_md))
-                    else:
-                        lista_promedios_md = f"Estos son los promedios de **{nombre_entidad}** por asignatura:\n\n"
-                        for asignatura, promedio in alumno_notas_promedio.round(2).items():
-                            lista_promedios_md += f"* **{asignatura}:** {promedio}\n"
-                        return jsonify(crear_respuesta_directa(lista_promedios_md))
-        
-        # INTENCIÓN 2: ALUMNO CON MÁS ASIGNATURAS BAJAS
-        elif ('alumno' in prompt_lower or 'estudiante' in prompt_lower) and ('cantidad de asignaturas' in prompt_lower or 'asignaturas con nota' in prompt_lower) and ('bajo' in prompt_lower or 'menor a' in prompt_lower):
-            # Lógica existente (correcta)
-            print("DEBUG: Intención de ALUMNO CON MÁS ASIGNATURAS BAJAS detectada.")
-            subject_cols_config = df_global[asignatura_col].unique().tolist()
-            threshold = current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0)
-            df_entidad_copy = df_entidad.copy()
-            df_entidad_copy['asignaturas_bajas_count'] = df_entidad_copy.groupby(nombre_col)[nota_col].transform(lambda x: (x < threshold).sum())
-            df_alumnos_unicos = df_entidad_copy.drop_duplicates(subset=[nombre_col]).copy()
-            max_bajas = df_alumnos_unicos['asignaturas_bajas_count'].max()
-            if max_bajas > 0:
-                alumnos_criticos = df_alumnos_unicos[df_alumnos_unicos['asignaturas_bajas_count'] == max_bajas]
-                nombre_alumno = alumnos_criticos.iloc[0][nombre_col]
-                cantidad_asignaturas = int(max_bajas)
-                asignaturas_bajas_df = df_entidad[(df_entidad[nombre_col] == nombre_alumno) & (df_entidad[nota_col] < threshold)]
-                asignaturas_bajas = asignaturas_bajas_df[asignatura_col].unique().tolist()
-                response_md = f"El alumno con la mayor cantidad de asignaturas con rendimiento bajo {threshold} es **{nombre_alumno}**, con **{cantidad_asignaturas}** asignatura(s): *{', '.join(asignaturas_bajas)}*."
-                return jsonify(crear_respuesta_directa(response_md))
-            else:
-                response_md = f"Ningún alumno en el curso {nombre_entidad} tiene asignaturas con promedio inferior a {threshold}."
-                return jsonify(crear_respuesta_directa(response_md))
-
-        # INTENCIÓN 3: ANOTACIONES
-        elif any(kw in prompt_lower for kw in ['anotaciones', 'registros', 'observaciones']) and any(kw in prompt_lower for kw in ['quién', 'cuál', 'qué alumno']):
-            # Lógica existente (correcta)
-            pass 
-
-        # INTENCIÓN 4: MEJOR/PEOR ALUMNO
-        elif (('alumno' in prompt_lower or 'estudiante' in prompt_lower) or 'quién' in prompt_lower) and any(kw in prompt_lower for kw in ['mejor', 'peor', 'mayor', 'menor', 'promedio']) and ' y ' not in prompt_lower:
-            print("DEBUG: Intención de MEJOR/PEOR ALUMNO detectada.")
-            promedio_col = current_app.config['PROMEDIO_COL']
+        # Intención 1 (Más específica): Mejor/Peor ALUMNO de un CURSO
+        if tipo_entidad == 'curso' and ('alumno' in prompt_lower or 'estudiante' in prompt_lower) and any(kw in prompt_lower for kw in ['mejor', 'peor', 'mayor', 'menor', 'promedio']):
             df_alumnos_unicos = df_entidad.drop_duplicates(subset=[nombre_col])
-            if promedio_col in df_alumnos_unicos.columns and not df_alumnos_unicos.empty:
+            if not df_alumnos_unicos.empty:
                 if any(kw in prompt_lower for kw in ['mejor', 'mayor']):
                     mejor_alumno = df_alumnos_unicos.loc[df_alumnos_unicos[promedio_col].idxmax()]
                     response_md = f"El alumno con el mejor promedio en {nombre_entidad} es **{mejor_alumno[nombre_col]}** con un **{mejor_alumno[promedio_col]:.2f}**."
                     return jsonify(crear_respuesta_directa(response_md))
-                elif any(kw in prompt_lower for kw in ['peor', 'menor', 'más bajo']):
+                elif any(kw in prompt_lower for kw in ['peor', 'menor']):
                     peor_alumno = df_alumnos_unicos.loc[df_alumnos_unicos[promedio_col].idxmin()]
                     response_md = f"El alumno con el peor promedio en {nombre_entidad} es **{peor_alumno[nombre_col]}** con un **{peor_alumno[promedio_col]:.2f}**."
                     return jsonify(crear_respuesta_directa(response_md))
 
-        # INTENCIÓN 5: PROMEDIO DEL CURSO
-        elif ('promedio' in prompt_lower or 'media' in prompt_lower) and 'curso' in prompt_lower:
-            print("DEBUG: Intención de PROMEDIO DEL CURSO detectada.")
+        # Intención 2: Mejor/Peor ASIGNATURA (para CURSO o ALUMNO)
+        if any(kw in prompt_lower for kw in ['asignatura', 'materia', 'ramo']) and any(kw in prompt_lower for kw in ['peor', 'mejor', 'más alta', 'más baja']):
+            promedios_asignaturas = df_entidad.groupby(asignatura_col)[nota_col].mean().dropna()
+            if not promedios_asignaturas.empty:
+                if any(kw in prompt_lower for kw in ['mejor', 'más alta']):
+                    mejor_key = promedios_asignaturas.idxmax()
+                    response_md = f"La asignatura con el mejor rendimiento para **{nombre_entidad}** es **{mejor_key}** con un promedio de **{promedios_asignaturas.max():.2f}**."
+                    return jsonify(crear_respuesta_directa(response_md))
+                elif any(kw in prompt_lower for kw in ['peor', 'más baja']):
+                    peor_key = promedios_asignaturas.idxmin()
+                    response_md = f"La asignatura con el rendimiento más bajo para **{nombre_entidad}** es **{peor_key}** con un promedio de **{promedios_asignaturas.min():.2f}**."
+                    return jsonify(crear_respuesta_directa(response_md))
+
+        # Intención 2.1: Edad de un Alumno
+        elif tipo_entidad == 'alumno' and 'edad' in prompt_lower:
+            edad_col = current_app.config.get('EDAD_COL')
+            if edad_col and edad_col in df_entidad.columns:
+                edad = df_entidad.iloc[0][edad_col]
+                if pd.notna(edad):
+                    response_md = f"**{nombre_entidad}** tiene **{int(edad)} años**."
+                    return jsonify(crear_respuesta_directa(response_md))
+                
+        # Intención 3 (Más general): Promedio de un CURSO
+        if tipo_entidad == 'curso' and ('promedio' in prompt_lower or 'media' in prompt_lower):
             promedio_curso = df_entidad[nota_col].mean()
-            response_md = f"El promedio general del curso {nombre_entidad} es **{promedio_curso:.2f}**."
-            return jsonify(crear_respuesta_directa(response_md))
-        
-        # INTENCIÓN 6: CONTEO DE ALUMNOS
-        elif ('alumnos' in prompt_lower or 'estudiantes' in prompt_lower) and any(kw in prompt_lower for kw in ['cuántos', 'cantidad', 'número', 'total de']):
-            print("DEBUG: Intención de CONTEO DE ALUMNOS detectada.")
-            count = df_entidad[nombre_col].nunique()
-            response_md = f"El curso {nombre_entidad} tiene {count} alumnos."
+            response_md = f"El promedio general del curso **{nombre_entidad}** es **{promedio_curso:.2f}**."
             return jsonify(crear_respuesta_directa(response_md))
 
+        # Intención 4: Promedio de un ALUMNO
+        if tipo_entidad == 'alumno' and ('promedio' in prompt_lower or 'media' in prompt_lower):
+            promedio_alumno = df_entidad.iloc[0][promedio_col]
+            response_md = f"El promedio general de **{nombre_entidad}** es **{promedio_alumno:.2f}**."
+            return jsonify(crear_respuesta_directa(response_md))
+
+        # Intención 5: Contar alumnos en un CURSO
+        if tipo_entidad == 'curso' and ('alumnos' in prompt_lower or 'estudiantes' in prompt_lower) and any(kw in prompt_lower for kw in ['cuántos', 'cantidad', 'número', 'total']):
+            count = df_entidad[nombre_col].nunique()
+            response_md = f"El curso **{nombre_entidad}** tiene **{count}** alumnos."
+            return jsonify(crear_respuesta_directa(response_md))
+
+        # --- FIN: Motor de Intenciones ---
+
     # Si ninguna intención simple coincide, se procede con la consulta a Gemini.
-    print("DEBUG: No se detectó intención simple o la consulta es compleja. Enviando a Gemini.")
-    # (El resto de la función para llamar a Gemini no cambia)
     data_string_especifico = load_data_as_string(session.get('current_file_path'), specific_entity_df=df_entidad)
     chat_history_key = f'chat_history_detalle_{tipo_entidad}_{nombre_entidad}'
     chat_history_list_detalle = session.get(chat_history_key, [])
@@ -1177,3 +1139,15 @@ def generar_recursos_apoyo(tipo_entidad, valor_codificado, plan_ref):
                            fecha_emision_plan=plan_timestamp_str, 
                            plan_ref=plan_ref, 
                            filename=current_csv_filename)
+
+def crear_respuesta_directa(texto_markdown):
+    """Función auxiliar para construir el objeto JSON de respuesta directa."""
+    return {
+        'html_output': markdown.markdown(texto_markdown),
+        'raw_markdown': texto_markdown,
+        'model_name': 'Cálculo Directo del Servidor',
+        'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0,
+        'input_cost': 0.0, 'output_cost': 0.0, 'total_cost': 0.0,
+        'consumo_sesion': session.get('consumo_sesion', {'total_tokens': 0, 'total_cost': 0.0}),
+        'error': None
+    }
