@@ -1024,7 +1024,6 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
 
 @main_bp.route('/visualizar_plan_intervencion/<tipo_entidad>/<path:valor_codificado>/<plan_ref>')
 def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
-    # No changes to this function
     try:
         nombre_entidad = unquote(valor_codificado)
     except Exception:
@@ -1034,6 +1033,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
     plan_html_content = None
     plan_date = "Fecha no disponible"
     plan_title = f"Plan de Intervención para {tipo_entidad.capitalize()}: {nombre_entidad}"
+    current_filename = session.get('uploaded_filename', 'N/A')
 
     if plan_ref == 'current': 
         if (session.get('current_intervention_plan_html') and
@@ -1042,7 +1042,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
             plan_html_content = session['current_intervention_plan_html']
             plan_date = session.get('current_intervention_plan_date', plan_date)
         else:
-            flash('No hay un plan de intervención actual en sesión para esta entidad o los datos no coinciden.', 'warning')
+            flash('No hay un plan de intervención actual en sesión para esta entidad.', 'warning')
             return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     else: 
         try:
@@ -1051,28 +1051,28 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
+                # --- LÍNEA CORREGIDA: Se eliminó el filtro AND related_filename = ? ---
                 cursor.execute("""
-                    SELECT timestamp, follow_up_comment FROM follow_ups 
+                    SELECT timestamp, follow_up_comment, related_filename FROM follow_ups 
                     WHERE id = ? AND follow_up_type = 'intervention_plan' 
                     AND related_entity_type = ? AND related_entity_name = ?
-                    AND related_filename = ? 
                     """, 
-                               (plan_id_to_load, tipo_entidad, nombre_entidad, session.get('uploaded_filename', 'N/A')))
+                               (plan_id_to_load, tipo_entidad, nombre_entidad))
                 plan_data = cursor.fetchone()
                 if plan_data:
-                    plan_html_content = markdown.markdown(plan_data['follow_up_comment'], extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
+                    plan_html_content = markdown.markdown(plan_data['follow_up_comment'])
                     plan_date = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M:%S')
+                    current_filename = plan_data['related_filename'] # Usamos el nombre del archivo original del reporte
                 else:
-                    flash(f'No se encontró el plan de intervención con ID {plan_id_to_load} para esta entidad y archivo.', 'warning')
-                    return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
-        except ValueError:
+                    flash(f'No se encontró el plan de intervención con ID {plan_id_to_load} para esta entidad.', 'warning')
+                    return redirect(url_for('main.biblioteca_reportes'))
+        except (ValueError, TypeError):
             flash('Referencia de plan no válida.', 'danger')
-            return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
+            return redirect(url_for('main.biblioteca_reportes'))
         except Exception as e:
-            flash(f'Error al cargar el plan de intervención: {str(e)}', 'danger')
+            flash(f'Error al cargar el plan de intervención histórico: {str(e)}', 'danger')
             traceback.print_exc()
-            return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
-
+            return redirect(url_for('main.biblioteca_reportes'))
 
     return render_template('visualizar_plan_intervencion.html',
                            page_title=plan_title,
@@ -1081,7 +1081,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                            plan_html=plan_html_content,
                            fecha_emision_plan=plan_date,
                            plan_ref=plan_ref, 
-                           filename=session.get('uploaded_filename', 'N/A'))
+                           filename=current_filename)
 
 # --- RUTA PARA RECURSOS DE APOYO ---
 @main_bp.route('/generar_recursos_apoyo/<tipo_entidad>/<path:valor_codificado>/<plan_ref>')
@@ -1151,3 +1151,70 @@ def crear_respuesta_directa(texto_markdown):
         'consumo_sesion': session.get('consumo_sesion', {'total_tokens': 0, 'total_cost': 0.0}),
         'error': None
     }
+
+@main_bp.route('/biblioteca')
+def biblioteca_reportes():
+    if not session.get('current_file_path'):
+        flash('Primero debes cargar un archivo CSV para ver su historial de reportes.', 'warning')
+        return redirect(url_for('main.index'))
+
+    db_path = current_app.config['DATABASE_FILE']
+    current_filename = session.get('uploaded_filename')
+    reportes = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            # Seleccionamos solo los reportes asociados al archivo CSV activo
+            cursor.execute("""
+                SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
+                FROM follow_ups
+                WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan')
+                AND related_filename = ?
+                ORDER BY timestamp DESC
+            """, (current_filename,))
+            reportes = [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        flash(f'Error al cargar la biblioteca de reportes: {e}', 'danger')
+        traceback.print_exc()
+
+    return render_template('biblioteca.html',
+                           page_title="Biblioteca de Reportes",
+                           reportes=reportes,
+                           filename=current_filename)
+
+@main_bp.route('/reporte_360/ver/<int:reporte_id>')
+def ver_reporte_360(reporte_id):
+    db_path = current_app.config['DATABASE_FILE']
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM follow_ups WHERE id = ? AND follow_up_type = 'reporte_360'", (reporte_id,))
+            report_data = cursor.fetchone()
+
+        if report_data:
+            reporte_html = markdown.markdown(report_data['follow_up_comment'])
+            observaciones = get_observations_for_reporte_360(db_path, reporte_id)
+            
+            # Guardamos en sesión para mantener el flujo contextual
+            session['reporte_360_markdown'] = report_data['follow_up_comment']
+            session['reporte_360_entidad_tipo'] = report_data['related_entity_type']
+            session['reporte_360_entidad_nombre'] = report_data['related_entity_name']
+            session['current_reporte_360_id'] = reporte_id
+
+            return render_template('reporte_360.html',
+                                   page_title=f"Reporte 360 Histórico - {report_data['related_entity_name']}",
+                                   tipo_entidad=report_data['related_entity_type'],
+                                   nombre_entidad=report_data['related_entity_name'],
+                                   reporte_html=reporte_html,
+                                   reporte_360_id=reporte_id,
+                                   observaciones_reporte=observaciones,
+                                   filename=report_data['related_filename'])
+        else:
+            flash('No se encontró el Reporte 360 solicitado.', 'warning')
+            return redirect(url_for('main.biblioteca_reportes'))
+    except Exception as e:
+        flash(f'Error al cargar el reporte histórico: {e}', 'danger')
+        traceback.print_exc()
+        return redirect(url_for('main.biblioteca_reportes'))

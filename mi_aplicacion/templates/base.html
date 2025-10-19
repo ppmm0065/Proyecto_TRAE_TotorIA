@@ -135,6 +135,8 @@
                         
                         <div class="menu-section-title">Herramientas</div>
                         <li><button id="open-context-uploader-btn" class="menu-item w-full text-left menu-item-action"><i class="fas fa-file-alt fa-fw"></i> Cargar Documento de Contexto</button></li>
+                        
+                        <li><a href="{{ url_for('main.biblioteca_reportes') }}" class="menu-item menu-item-action {% if 'biblioteca' in request.endpoint %}active{% endif %}"><i class="fas fa-book fa-fw"></i> Biblioteca de Reportes</a></li>
 
                         {% if request.endpoint == 'main.detalle_entidad' or 'generar_reporte_360' in request.endpoint or 'visualizar_plan_intervencion' in request.endpoint or 'generar_recursos_apoyo' in request.endpoint %}
                             <li><a href="{{ url_for('main.generar_reporte_360', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad) }}" class="menu-item menu-item-action {% if 'generar_reporte_360' in request.endpoint %}active{% endif %}"><i class="fas fa-file-invoice fa-fw"></i> Generar Reporte 360</a></li>

@@ -356,7 +356,6 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         return create_error_response(f"Comunicación con Gemini o procesamiento de su respuesta: {e}")
 
 def init_sqlite_db(db_path):
-    # No changes
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -364,6 +363,7 @@ def init_sqlite_db(db_path):
             CREATE TABLE IF NOT EXISTS follow_ups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                report_date DATE,
                 related_filename TEXT,
                 related_prompt TEXT,
                 related_analysis TEXT, 
@@ -375,12 +375,8 @@ def init_sqlite_db(db_path):
         ''')
         table_info = cursor.execute("PRAGMA table_info(follow_ups)").fetchall()
         column_names = [info[1] for info in table_info]
-        if 'follow_up_type' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN follow_up_type TEXT DEFAULT 'general_comment'")
-        if 'related_entity_type' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN related_entity_type TEXT")
-        if 'related_entity_name' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN related_entity_name TEXT")
+        if 'report_date' not in column_names:
+            cursor.execute("ALTER TABLE follow_ups ADD COLUMN report_date DATE")
 
         # --- INICIO: NUEVA TABLA PARA CONSUMO DE TOKENS ---
         # Se crea una tabla para llevar un registro histórico y acumulado del consumo por día y por modelo.
