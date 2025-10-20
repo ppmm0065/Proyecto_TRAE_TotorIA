@@ -16,6 +16,7 @@ import markdown
 import re
 import csv
 import datetime
+import shutil
 
 embedding_model_instance = None
 vector_store = None # For institutional context
@@ -646,20 +647,49 @@ def _load_and_split_context_documents(context_docs_folder_path):
         except Exception as e: print(f"Error dividiendo docs: {e}"); traceback.print_exc()
     return chunks
 
-def reload_institutional_context_vector_store(app_config): 
-    # No changes
-    global vector_store, embedding_model_instance 
-    if not embedding_model_instance: print("Error CRÍTICO: Modelo embeddings no disponible."); vector_store = None; return False
-    folder, path = app_config.get('CONTEXT_DOCS_FOLDER'), app_config.get('FAISS_INDEX_PATH')
-    if not folder or not path: print("Error: Rutas de contexto o índice FAISS no configuradas."); vector_store = None; return False 
+def reload_institutional_context_vector_store(app_config):
+    global vector_store, embedding_model_instance
+    if not embedding_model_instance:
+        print("Error CRÍTICO: Modelo embeddings no disponible.")
+        vector_store = None
+        return False
+
+    folder = app_config.get('CONTEXT_DOCS_FOLDER')
+    path = app_config.get('FAISS_INDEX_PATH')
+    if not folder or not path:
+        print("Error: Rutas de contexto o índice FAISS no configuradas.")
+        vector_store = None
+        return False
+
     chunks = _load_and_split_context_documents(folder)
-    if chunks: 
-        try: vs_temp = FAISS.from_documents(chunks, embedding_model_instance); vs_temp.save_local(path); vector_store = vs_temp; print(f"Índice FAISS institucional actualizado: {path}"); return True
-        except Exception as e: print(f"Error creando/guardando índice FAISS institucional: {e}"); traceback.print_exc(); vector_store = None; return False
-    elif os.path.exists(path) and os.path.isdir(path) and os.listdir(path): 
-        try: vector_store = FAISS.load_local(path, embedding_model_instance, allow_dangerous_deserialization=True); print(f"Índice FAISS institucional cargado: {path}"); return True
-        except Exception as e: print(f"Error cargando índice FAISS institucional: {e}"); traceback.print_exc(); vector_store = None; return False
-    else: print(f"No hay docs de contexto y no existe índice FAISS institucional: {path}."); vector_store = None; return True
+    
+    if chunks:
+        # Si hay documentos, creamos un nuevo índice y lo guardamos
+        try:
+            vs_temp = FAISS.from_documents(chunks, embedding_model_instance)
+            vs_temp.save_local(path)
+            vector_store = vs_temp
+            print(f"Índice FAISS institucional actualizado desde {len(chunks)} chunks: {path}")
+            return True
+        except Exception as e:
+            print(f"Error creando/guardando índice FAISS institucional: {e}")
+            traceback.print_exc()
+            vector_store = None
+            return False
+    else:
+        # Si NO hay documentos, eliminamos cualquier índice antiguo
+        print("No se encontraron documentos de contexto. Limpiando índice existente si lo hubiera.")
+        if os.path.exists(path):
+            try:
+                shutil.rmtree(path) # Elimina la carpeta del índice
+                print(f"Índice FAISS institucional antiguo eliminado de: {path}")
+            except Exception as e:
+                print(f"Error al intentar eliminar el índice FAISS antiguo: {e}")
+                traceback.print_exc()
+                return False # Indica que hubo un problema en la limpieza
+        
+        vector_store = None # Aseguramos que el vector store en memoria esté vacío
+        return True
 
 def reload_followup_vector_store(app_config): 
     global vector_store_followups, embedding_model_instance

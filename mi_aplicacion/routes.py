@@ -1218,3 +1218,41 @@ def ver_reporte_360(reporte_id):
         flash(f'Error al cargar el reporte histórico: {e}', 'danger')
         traceback.print_exc()
         return redirect(url_for('main.biblioteca_reportes'))
+    
+@main_bp.route('/api/get_context_docs')
+def api_get_context_docs():
+    context_folder = current_app.config['CONTEXT_DOCS_FOLDER']
+    try:
+        if os.path.exists(context_folder) and os.path.isdir(context_folder):
+            docs = [f for f in os.listdir(context_folder) if f.lower().endswith(('.pdf', '.txt'))]
+            return jsonify(sorted(docs))
+        return jsonify([])
+    except Exception as e:
+        return jsonify({"error": f"Error al leer la carpeta de documentos: {e}"}), 500
+
+@main_bp.route('/api/delete_context_doc', methods=['POST'])
+def api_delete_context_doc():
+    data = request.json
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({"error": "No se proporcionó el nombre del archivo."}), 400
+
+    safe_filename = secure_filename(filename)
+    if safe_filename != filename:
+        return jsonify({"error": "Nombre de archivo no válido."}), 400
+
+    context_folder = current_app.config['CONTEXT_DOCS_FOLDER']
+    file_path = os.path.join(context_folder, safe_filename)
+
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            # Crucial: Re-indexar el RAG después de eliminar un archivo
+            if reload_institutional_context_vector_store(current_app.config):
+                return jsonify({"message": f"Archivo '{safe_filename}' eliminado y el índice de contexto ha sido actualizado."})
+            else:
+                return jsonify({"message": f"Archivo '{safe_filename}' eliminado, pero hubo un error al actualizar el índice de contexto."}), 500
+        else:
+            return jsonify({"error": "El archivo no fue encontrado."}), 404
+    except Exception as e:
+        return jsonify({"error": f"Error al eliminar el archivo: {e}"}), 500
