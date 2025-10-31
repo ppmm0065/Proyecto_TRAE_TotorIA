@@ -1033,6 +1033,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
     plan_html_content = None
     plan_date = "Fecha no disponible"
     plan_title = f"Plan de Intervención para {tipo_entidad.capitalize()}: {nombre_entidad}"
+    # Obtenemos el filename de la sesión solo como un fallback
     current_filename = session.get('uploaded_filename', 'N/A')
 
     if plan_ref == 'current': 
@@ -1051,7 +1052,11 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                # --- LÍNEA CORREGIDA: Se eliminó el filtro AND related_filename = ? ---
+                
+                # --- BLOQUE CORREGIDO ---
+                # Se eliminó el filtro AND related_filename = ?
+                # La consulta ahora valida que el ID, tipo y nombre coincidan,
+                # lo cual es suficiente para cargar el reporte correcto.
                 cursor.execute("""
                     SELECT timestamp, follow_up_comment, related_filename FROM follow_ups 
                     WHERE id = ? AND follow_up_type = 'intervention_plan' 
@@ -1059,6 +1064,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                     """, 
                                (plan_id_to_load, tipo_entidad, nombre_entidad))
                 plan_data = cursor.fetchone()
+                
                 if plan_data:
                     plan_html_content = markdown.markdown(plan_data['follow_up_comment'])
                     plan_date = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M:%S')
@@ -1160,26 +1166,45 @@ def biblioteca_reportes():
 
     db_path = current_app.config['DATABASE_FILE']
     current_filename = session.get('uploaded_filename')
+    
+    # --- NUEVA LÓGICA DE FILTRADO ---
+    search_tipo = request.args.get('tipo_entidad')
+    search_nombre = request.args.get('nombre_entidad')
+    
     reportes = []
+    query_params = [current_filename]
+    
+    base_query = """
+        SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
+        FROM follow_ups
+        WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan')
+        AND related_filename = ?
+    """
+    
+    # Define un título por defecto
+    page_title = "Biblioteca de Reportes (Todos)"
+    
+    if search_tipo and search_nombre:
+        base_query += " AND related_entity_type = ? AND related_entity_name = ?"
+        query_params.extend([search_tipo, search_nombre])
+        # Actualiza el título si hay un filtro
+        page_title = f"Biblioteca: {search_nombre}"
+
+    base_query += " ORDER BY timestamp DESC"
+    # --- FIN LÓGICA DE FILTRADO ---
+
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            # Seleccionamos solo los reportes asociados al archivo CSV activo
-            cursor.execute("""
-                SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
-                FROM follow_ups
-                WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan')
-                AND related_filename = ?
-                ORDER BY timestamp DESC
-            """, (current_filename,))
+            cursor.execute(base_query, tuple(query_params))
             reportes = [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         flash(f'Error al cargar la biblioteca de reportes: {e}', 'danger')
         traceback.print_exc()
 
     return render_template('biblioteca.html',
-                           page_title="Biblioteca de Reportes",
+                           page_title=page_title, # Pasa el título dinámico
                            reportes=reportes,
                            filename=current_filename)
 

@@ -136,7 +136,7 @@
                         <div class="menu-section-title">Herramientas</div>
                         <li><button id="open-context-uploader-btn" class="menu-item w-full text-left menu-item-action"><i class="fas fa-file-alt fa-fw"></i> Cargar Documento de Contexto</button></li>
                         
-                        <li><a href="{{ url_for('main.biblioteca_reportes') }}" class="menu-item menu-item-action {% if 'biblioteca' in request.endpoint %}active{% endif %}"><i class="fas fa-book fa-fw"></i> Biblioteca de Reportes</a></li>
+                        <li><button id="open-library-search-btn" class="menu-item w-full text-left menu-item-action {% if 'biblioteca' in request.endpoint %}active{% endif %}"><i class="fas fa-book fa-fw"></i> Biblioteca de Reportes</button></li>
 
                         {% if request.endpoint == 'main.detalle_entidad' or 'generar_reporte_360' in request.endpoint or 'visualizar_plan_intervencion' in request.endpoint or 'generar_recursos_apoyo' in request.endpoint %}
                             <li><a href="{{ url_for('main.generar_reporte_360', tipo_entidad=tipo_entidad, valor_codificado=nombre_entidad) }}" class="menu-item menu-item-action {% if 'generar_reporte_360' in request.endpoint %}active{% endif %}"><i class="fas fa-file-invoice fa-fw"></i> Generar Reporte 360</a></li>
@@ -208,7 +208,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     
-    // ===== LÓGICA PARA MODAL BUSCADOR DE ENTIDAD (Existente - sin cambios) =====
+    // ===== LÓGICA PARA MODAL BUSCADOR DE ENTIDAD (MODIFICADO) =====
     const modal = document.getElementById('entity-selector-modal');
     const openBtn = document.getElementById('open-entity-selector-btn');
     const closeBtn = document.getElementById('close-entity-selector-btn');
@@ -220,14 +220,34 @@ document.addEventListener('DOMContentLoaded', function() {
     const studentSuggestions = document.getElementById('modal-student-suggestions');
     const courseSelect = document.getElementById('modal-select-course');
     const viewDashboardBtn = document.getElementById('modal-view-dashboard-btn');
+    
+    // --- NUEVAS LÍNEAS PARA GESTIONAR EL CONTEXTO ---
+    const openLibraryBtn = document.getElementById('open-library-search-btn');
+    let modalSearchContext = 'dashboard'; // Contexto por defecto
+
     let selectedEntityType = 'alumno';
     let selectedEntityValue = '';
     let studentSearchDebounceTimer;
 
-    function openModal() { if (modal) { modal.classList.remove('hidden'); setTimeout(() => { modal.classList.remove('opacity-0'); modal.querySelector('.modal-content').classList.remove('-translate-y-10'); }, 10); loadCoursesToModal(); } }
-    function closeModal() { if (modal) { modal.classList.add('opacity-0'); modal.querySelector('.modal-content').classList.add('-translate-y-10'); setTimeout(() => modal.classList.add('hidden'), 300); } }
+    // --- LÓGICA DE APERTURA MODIFICADA ---
+    function openModal(context) {
+        modalSearchContext = context; // Establece el contexto ('dashboard' o 'library')
+        if (modal) { 
+            modal.classList.remove('hidden'); 
+            setTimeout(() => { 
+                modal.classList.remove('opacity-0'); 
+                modal.querySelector('.modal-content').classList.remove('-translate-y-10'); 
+            }, 10); 
+            loadCoursesToModal();
+            validateSelection(); // Llama a validateSelection para actualizar el texto del botón
+        } 
+    }
+    
+    openBtn.addEventListener('click', () => openModal('dashboard'));
+    openLibraryBtn.addEventListener('click', () => openModal('library'));
+    // --- FIN LÓGICA DE APERTURA ---
 
-    openBtn.addEventListener('click', openModal);
+    function closeModal() { if (modal) { modal.classList.add('opacity-0'); modal.querySelector('.modal-content').classList.add('-translate-y-10'); setTimeout(() => modal.classList.add('hidden'), 300); } }
     closeBtn.addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
@@ -240,17 +260,49 @@ document.addEventListener('DOMContentLoaded', function() {
     
     courseSelect.addEventListener('change', () => { selectedEntityValue = courseSelect.value; validateSelection(); });
 
-    function validateSelection() { let isValid = false; if (selectedEntityType === 'alumno' && studentInput.value && studentInput.value === selectedEntityValue) { isValid = true; } else if (selectedEntityType === 'curso' && courseSelect.value) { selectedEntityValue = courseSelect.value; isValid = true; } else { selectedEntityValue = ''; } viewDashboardBtn.disabled = !isValid; }
-    
-    viewDashboardBtn.addEventListener('click', () => {
-        if (!viewDashboardBtn.disabled) {
-            const baseUrl = "{{ url_for('main.detalle_entidad', tipo_entidad='TYPE_PLACEHOLDER', valor_codificado='VALUE_PLACEHOLDER') }}";
-            const finalUrl = baseUrl.replace('TYPE_PLACEHOLDER', selectedEntityType).replace('VALUE_PLACEHOLDER', encodeURIComponent(selectedEntityValue));
-            window.location.href = finalUrl;
+    // --- FUNCIÓN DE VALIDACIÓN MODIFICADA ---
+    function validateSelection() { 
+        let isValid = false; 
+        if (selectedEntityType === 'alumno' && studentInput.value && studentInput.value === selectedEntityValue) { 
+            isValid = true; 
+        } else if (selectedEntityType === 'curso' && courseSelect.value) { 
+            selectedEntityValue = courseSelect.value; 
+            isValid = true; 
+        } else { 
+            selectedEntityValue = ''; 
+        } 
+        
+        if (viewDashboardBtn) {
+            viewDashboardBtn.disabled = !isValid; 
+            // Cambia el texto del botón según el contexto
+            if (modalSearchContext === 'library') {
+                viewDashboardBtn.textContent = 'Ver Historial de Reportes';
+            } else {
+                viewDashboardBtn.textContent = 'Ver Dashboard';
+            }
         }
-    });
+    }
+    
+    // --- LÓGICA DE REDIRECCIÓN MODIFICADA ---
+    if(viewDashboardBtn) {
+        viewDashboardBtn.addEventListener('click', () => {
+            if (!viewDashboardBtn.disabled) {
+                let finalUrl = '';
+                if (modalSearchContext === 'library') {
+                    // Nueva URL para la biblioteca filtrada
+                    const baseUrl = "{{ url_for('main.biblioteca_reportes') }}";
+                    finalUrl = `${baseUrl}?tipo_entidad=${selectedEntityType}&nombre_entidad=${encodeURIComponent(selectedEntityValue)}`;
+                } else {
+                    // Lógica existente para ir al dashboard
+                    const baseUrl = "{{ url_for('main.detalle_entidad', tipo_entidad='TYPE_PLACEHOLDER', valor_codificado='VALUE_PLACEHOLDER') }}";
+                    finalUrl = baseUrl.replace('TYPE_PLACEHOLDER', selectedEntityType).replace('VALUE_PLACEHOLDER', encodeURIComponent(selectedEntityValue));
+                }
+                window.location.href = finalUrl;
+            }
+        });
+    }
 
-    // ===== LÓGICA PARA MODAL GESTOR DE CONTEXTO (NUEVO) =====
+    // ===== LÓGICA PARA MODAL GESTOR DE CONTEXTO (Existente - sin cambios) =====
     const contextModal = document.getElementById('context-uploader-modal');
     const openContextBtn = document.getElementById('open-context-uploader-btn');
     const closeContextBtn = document.getElementById('close-context-uploader-btn');
