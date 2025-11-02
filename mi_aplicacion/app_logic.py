@@ -17,6 +17,7 @@ import re
 import csv
 import datetime
 import shutil
+from flask import current_app
 
 embedding_model_instance = None
 vector_store = None # For institutional context
@@ -142,15 +143,121 @@ def format_chat_history_for_prompt(chat_history_list, max_turns=None):
         formatted_history += f"Usuario: {user_query}\nAsistente: {gemini_answer_markdown}\n---\n"
     return formatted_history
 
+def get_student_evolution_summary(db_path, top_n=5, entity_name=None):
+    """
+    Consulta la base de datos para obtener un resumen de la evolución de las notas
+    de los estudiantes entre la primera y la última instantánea de datos.
+    """
+    
+    # Esta consulta usa Expresiones de Tabla Comunes (CTE) para:
+    # 1. Calcular el promedio de notas por estudiante POR cada instantánea.
+    # 2. Asignar un "primer" y "último" promedio a cada estudiante basado en el tiempo.
+    # 3. Calcular la diferencia (evolución) y filtrar por aquellos con >1 instantánea.
+    
+    query = """
+    WITH SnapshotAverages AS (
+        -- 1. Calcula el promedio de notas de cada estudiante en cada snapshot
+        SELECT
+            h.snapshot_id,
+            h.student_name,
+            s.timestamp,
+            AVG(h.grade) AS avg_grade
+        FROM student_data_history h
+        JOIN data_snapshots s ON h.snapshot_id = s.id
+        GROUP BY h.snapshot_id, h.student_name, s.timestamp
+    ),
+    StudentEvolution AS (
+        -- 2. Encuentra el primer y último promedio para cada estudiante
+        SELECT
+            student_name,
+            FIRST_VALUE(avg_grade) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+            ) AS first_avg_grade,
+            LAST_VALUE(avg_grade) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+            ) AS last_avg_grade,
+            COUNT(snapshot_id) OVER (PARTITION BY student_name) AS num_snapshots
+        FROM SnapshotAverages
+    ),
+    FinalEvolution AS (
+        -- 3. Calcula la diferencia y filtra
+        SELECT
+            student_name,
+            first_avg_grade,
+            last_avg_grade,
+            (last_avg_grade - first_avg_grade) AS grade_evolution
+        FROM StudentEvolution
+        WHERE num_snapshots > 1 -- ¡Solo estudiantes con al menos 2 puntos de datos!
+        GROUP BY student_name, first_avg_grade, last_avg_grade -- Condensar resultados
+    )
+    SELECT
+        student_name,
+        first_avg_grade,
+        last_avg_grade,
+        grade_evolution
+    FROM FinalEvolution
+    """
+    
+    params = []
+    
+    # Si se pide la evolución de un estudiante específico
+    if entity_name:
+        query += " WHERE student_name = ? AND grade_evolution != 0"
+        params.append(entity_name)
+    else:
+        # Si es general, ordenamos y limitamos al top N
+        query += " WHERE grade_evolution != 0 ORDER BY grade_evolution DESC LIMIT ?"
+        params.append(top_n)
+
+    summary_lines = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            
+            if not rows:
+                if entity_name:
+                    return f"No se encontró historial de evolución (más de 1 instantánea) para '{entity_name}'."
+                else:
+                    return "No se encontró historial de evolución (más de 1 instantánea) para ningún estudiante."
+            
+            if entity_name:
+                summary_lines.append(f"Resumen de Evolución para {entity_name}:")
+            else:
+                summary_lines.append(f"Resumen de Evolución de Notas (Top {len(rows)} Mejoras):")
+                
+            for i, row in enumerate(rows):
+                evolution_sign = '+' if row['grade_evolution'] > 0 else ''
+                line = (
+                    f"{i+1}. {row['student_name']}: "
+                    f"Promedio Inicial: {row['first_avg_grade']:.2f}, "
+                    f"Promedio Final: {row['last_avg_grade']:.2f} "
+                    f"(Evolución: {evolution_sign}{row['grade_evolution']:.2f})"
+                )
+                summary_lines.append(line)
+                
+        return "\n".join(summary_lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar evolución de estudiantes: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos de evolución: {e}"
+
+# --- FIN: NUEVA FUNCIÓN DE CONSULTA DE EVOLUCIÓN ---
+
 def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup, 
                              chat_history_string="", is_reporte_360=False, 
                              is_plan_intervencion=False, is_direct_chat_query=False,
-                             entity_type=None, entity_name=None):
+                             entity_type=None, entity_name=None,
+                             historical_data_summary_string=""): # <-- PARÁMETRO FALTANTE AÑADIDO
+    
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
-    model_name = 'gemini-2.5-flash' # NUEVO: Definir el nombre del modelo para usarlo en cálculos
+    model_name = 'gemini-2.5-flash' 
 
-    # NUEVO: Estructura de retorno de error estandarizada
     def create_error_response(error_message):
         return {
             'html_output': f"<div class='text-red-700 p-3 bg-red-100 border rounded-md'><strong>Error:</strong> {error_message}</div>",
@@ -164,7 +271,9 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     if not embedding_model_instance:
         return create_error_response("Crítico: Modelo de embeddings no cargado.")
 
-
+    # ... (El resto de la lógica interna de la función que YA copiaste es correcta) ...
+    # ... (Rellenado de retrieved_context_inst, retrieved_context_followup_header, etc.) ...
+    
     retrieved_context_inst = "Contexto Institucional no disponible o no buscado."
     retrieved_context_followup_header = "Historial de Seguimiento Relevante de la Entidad"
     retrieved_context_followup = "Historial de Seguimiento de la Entidad no disponible o no buscado."
@@ -256,11 +365,11 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         except Exception as e_followup_retrieval: 
             retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
             traceback.print_exc()
-        
+            
     # --- Construct final prompt for Gemini ---
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name) # NUEVO: Usar la variable model_name
+        model = genai.GenerativeModel(model_name)
         
         prompt_parts = []
         prompt_parts.append(current_app.config.get('GEMINI_SYSTEM_ROLE_PROMPT', "Eres un asistente útil."))
@@ -274,6 +383,15 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc., si se encontraron para la consulta):\n```\n", retrieved_context_followup, "\n```\n---",
             ])
         
+        # --- (Este es el bloque que añadiste correctamente) ---
+        if historical_data_summary_string:
+            prompt_parts.append(
+                "Resumen de Datos Históricos (Evolución de notas calculada desde la Base de Datos):\n```\n"
+            )
+            prompt_parts.append(historical_data_summary_string)
+            prompt_parts.append("\n```\n---")
+        # --- (Fin del bloque) ---
+
         prompt_parts.extend([
             "Contexto Principal de Datos para la Consulta Actual (Datos del CSV para la entidad, o Reporte 360 base para el plan):\n```\n", data_string, "\n```\n---",
             "Instrucción Específica del Usuario (Pregunta Actual o Solicitud):\n", f'"{final_user_instruction}"', "\n---",
@@ -288,18 +406,16 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
 
         response = model.generate_content(final_prompt_string)
         
-        # --- INICIO: NUEVO BLOQUE DE CONTEO DE TOKENS Y CÁLCULO DE COSTOS ---
+        # ... (El resto de la función: conteo de tokens, manejo de respuesta, etc. es correcto) ...
         input_tokens, output_tokens, total_tokens = 0, 0, 0
         cost_input, cost_output, total_cost = 0.0, 0.0, 0.0
         
         try:
-            # Extraer conteo de tokens desde la metadata de la respuesta
             usage_info = response.usage_metadata
             input_tokens = usage_info.prompt_token_count
             output_tokens = usage_info.candidates_token_count
             total_tokens = usage_info.total_token_count
             
-            # Calcular costos
             pricing_info = current_app.config.get('MODEL_PRICING', {}).get(model_name, {})
             if pricing_info:
                 input_cost_per_million = pricing_info.get('input_per_million', 0)
@@ -308,14 +424,12 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 cost_output = (output_tokens / 1_000_000) * output_cost_per_million
                 total_cost = cost_input + cost_output
             
-            # Guardar en la base de datos el consumo diario
             db_path = current_app.config['DATABASE_FILE']
             guardar_consumo_diario(db_path, model_name, input_tokens, output_tokens, total_cost)
 
         except Exception as e:
             print(f"Advertencia: No se pudo calcular el consumo de tokens/costos: {e}")
             traceback.print_exc()
-        # --- FIN: NUEVO BLOQUE DE CONTEO Y CÁLCULO ---
 
         raw_response_text, html_output, error_message = "", "", None
         feedback_info = response.prompt_feedback if hasattr(response, 'prompt_feedback') else None
@@ -338,7 +452,6 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             print(f"Error en Gemini: {error_message}")
             return create_error_response(error_message)
         
-        # NUEVO: Devolver un diccionario con toda la información
         return {
             'html_output': html_output,
             'raw_markdown': raw_response_text,
@@ -392,8 +505,46 @@ def init_sqlite_db(db_path):
                 PRIMARY KEY (fecha, modelo)
             )
         ''')
-        # --- FIN: NUEVA TABLA PARA CONSUMO DE TOKENS ---
+
+        # --- INICIO: NUEVAS TABLAS PARA HISTORIAL DE DATOS ---
+
+        # Tabla 1: Registra cada carga de archivo como una "instantánea"
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS data_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                filename TEXT NOT NULL,
+                num_students INTEGER,
+                num_records INTEGER,
+                UNIQUE(timestamp, filename)
+            )
+        ''')
+
+        # Tabla 2: Almacena los datos de cada estudiante de cada instantánea
+        # Esto nos permitirá consultar la evolución de notas, asistencia, etc.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS student_data_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL,
+                student_name TEXT NOT NULL,
+                student_course TEXT,
+                subject TEXT,
+                grade REAL,
+                attendance_perc REAL,
+                conduct_observation TEXT,
+                age INTEGER,
+                professor TEXT,
+                family_info TEXT,
+                interviews_info TEXT,
+                FOREIGN KEY (snapshot_id) REFERENCES data_snapshots (id) ON DELETE CASCADE
+            )
+        ''')
+        # Crear índices para acelerar consultas futuras
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_student_data_snapshot ON student_data_history (snapshot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_student_data_name ON student_data_history (student_name)")
         
+        # --- FIN: NUEVAS TABLAS PARA HISTORIAL DE DATOS ---
+
         conn.commit()
     except Exception as e:
         print(f"Error CRÍTICO al inicializar/actualizar SQLite: {e}"); traceback.print_exc()
@@ -462,6 +613,88 @@ def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_
         print(f"Error CRÍTICO al guardar observación para Reporte 360 en la BD: {e}")
         traceback.print_exc()
         return False
+
+def save_data_snapshot_to_db(df, filename, db_path):
+    """
+    Guarda el DataFrame completo en la base de datos como una instantánea histórica.
+    """
+    if df is None or df.empty:
+        print("Error en save_data_snapshot_to_db: El DataFrame está vacío.")
+        return False, "DataFrame vacío."
+
+    config = current_app.config
+    total_records = len(df)
+    total_students = df[config['NOMBRE_COL']].nunique()
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # 1. Crear la entrada en la tabla de instantáneas
+            cursor.execute("""
+                INSERT INTO data_snapshots (filename, num_students, num_records)
+                VALUES (?, ?, ?)
+            """, (filename, int(total_students), int(total_records)))
+            
+            snapshot_id = cursor.lastrowid
+
+            # 2. Preparar el DataFrame para la tabla histórica
+            # Seleccionamos solo las columnas que queremos guardar
+            df_to_save = df.copy()
+            
+            # Añadimos el ID de la instantánea
+            df_to_save['snapshot_id'] = snapshot_id
+
+            # Mapeamos las columnas del CSV (desde config) a los nombres de la BD
+            column_mapping = {
+                config['NOMBRE_COL']: 'student_name',
+                config['CURSO_COL']: 'student_course',
+                config['ASIGNATURA_COL']: 'subject',
+                config['NOTA_COL']: 'grade',
+                config.get('ASISTENCIA_COL'): 'attendance_perc',
+                config.get('OBSERVACIONES_COL'): 'conduct_observation',
+                config.get('EDAD_COL'): 'age',
+                config.get('PROFESOR_COL'): 'professor',
+                config.get('FAMILIA_COL'): 'family_info',
+                config.get('ENTREVISTAS_COL'): 'interviews_info'
+            }
+
+            # Renombrar solo las columnas que existen en el DataFrame
+            actual_mapping = {csv_col: db_col for csv_col, db_col in column_mapping.items() if csv_col in df_to_save.columns}
+            df_to_save.rename(columns=actual_mapping, inplace=True)
+
+            # Columnas finales que deben coincidir con la tabla student_data_history
+            final_db_columns = [
+                'snapshot_id', 'student_name', 'student_course', 'subject', 'grade',
+                'attendance_perc', 'conduct_observation', 'age', 'professor',
+                'family_info', 'interviews_info'
+            ]
+            
+            # Filtrar el DataFrame para que solo contenga columnas que existen en la BD
+            columns_to_insert = [col for col in final_db_columns if col in df_to_save.columns]
+            df_final = df_to_save[columns_to_insert]
+            
+            # 3. Guardar los datos en la tabla histórica usando pandas.to_sql
+            df_final.to_sql('student_data_history', conn, if_exists='append', index=False)
+            
+            conn.commit()
+            
+        print(f"Instantánea de datos guardada con ID {snapshot_id} ({total_records} registros) para el archivo {filename}.")
+        return True, f"Instantánea de datos (ID: {snapshot_id}) guardada con {total_records} registros."
+
+    except Exception as e:
+        print(f"Error CRÍTICO al guardar la instantánea de datos: {e}")
+        traceback.print_exc()
+        # Intentar revertir la entrada de snapshot si falla la inserción de datos
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("DELETE FROM data_snapshots WHERE id = ?", (snapshot_id,))
+                conn.commit()
+            print(f"Reversión de instantánea ID {snapshot_id} completada.")
+        except Exception as e_rollback:
+            print(f"Error CRÍTICO durante la reversión de la instantánea: {e_rollback}")
+            
+        return False, f"Error al guardar la instantánea: {e}"
 
 def load_follow_ups_as_documents(db_path): 
     follow_up_docs = []

@@ -44,6 +44,8 @@ from .app_logic import (
     save_reporte_360_to_db,
     get_historical_reportes_360_for_entity,
     save_observation_for_reporte_360,
+    save_data_snapshot_to_db,
+    get_student_evolution_summary,
     get_observations_for_reporte_360
 )
 import sqlite3
@@ -199,6 +201,20 @@ def upload_file():
 
             session['consumo_sesion'] = {'total_tokens': 0, 'total_cost': 0.0}
             flash(f'Archivo "{filename}" cargado y procesado con el nuevo formato.', 'success')
+            
+            # --- INICIO: GUARDAR INSTANTÁNEA EN LA BASE DE DATOS ---
+            try:
+                db_path = current_app.config['DATABASE_FILE']
+                success, message = save_data_snapshot_to_db(df, filename, db_path)
+                if success:
+                    flash(f"Historial de datos guardado. {message}", 'success')
+                else:
+                    flash(f"Error al guardar historial de datos: {message}", 'danger')
+            except Exception as e_snap:
+                flash(f"Error crítico al intentar guardar la instantánea de datos: {e_snap}", 'danger')
+                traceback.print_exc()
+            # --- FIN: GUARDAR INSTANTÁNEA EN LA BASE DE DATOS ---
+
             return redirect(url_for('main.index'))
         except Exception as e:
             flash(f'Error al procesar el archivo: {e}', 'danger')
@@ -400,6 +416,12 @@ def add_follow_up():
         except Exception as e: flash(f'Error al guardar el seguimiento: {e}', 'danger'); traceback.print_exc()
     return redirect(url_for('main.show_results'))
 
+# --- INICIO: DEFINIR PALABRAS CLAVE PARA DETECCIÓN DE INTENCIÓN ---
+EVOLUTION_KEYWORDS = ['evolución', 'mejora', 'mejorado', 'empeorado', 'historial', 
+                    'comparar', 'progresado', 'avanzado', 'cambiado', 'rendimiento histórico',
+                    'desempeño histórico']
+# --- FIN: DEFINIR PALABRAS CLAVE ---
+
 # --- Rutas de API ---
 @main_bp.route('/api/alertas/menor_promedio_niveles')
 def api_alertas_menor_promedio_niveles():
@@ -584,6 +606,23 @@ def api_detalle_chat():
         return jsonify({"error": "No se pudo cargar el DataFrame."}), 500
 
     prompt_lower = user_prompt.lower()
+
+    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (Específico de Entidad) ---
+    historical_data_summary = ""
+    # Solo buscamos evolución si es un alumno y el prompt lo sugiere
+    if tipo_entidad == 'alumno' and any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
+        try:
+            print(f"Detectada intención de evolución para: {nombre_entidad}")
+            db_path = current_app.config['DATABASE_FILE']
+            historical_data_summary = get_student_evolution_summary(
+                db_path, 
+                entity_name=nombre_entidad
+            )
+        except Exception as e:
+            print(f"Error al obtener resumen de evolución para {nombre_entidad}: {e}")
+            historical_data_summary = f"Error al consultar historial: {e}"
+    # --- FIN: DETECCIÓN DE INTENCIÓN ---
+
     df_entidad = pd.DataFrame()
     
     try:
@@ -666,7 +705,8 @@ def api_detalle_chat():
     analysis_result = analyze_data_with_gemini(
         data_string_especifico, user_prompt, vector_store, vector_store_followups,
         chat_history_string=chat_history_string_detalle, is_direct_chat_query=True,
-        entity_type=tipo_entidad, entity_name=nombre_entidad
+        entity_type=tipo_entidad, entity_name=nombre_entidad,
+        historical_data_summary_string=historical_data_summary # <-- PASAR EL RESUMEN
     )
     if not analysis_result.get('error'):
         chat_history_list_detalle.append({'user': user_prompt, 'gemini_markdown': analysis_result['raw_markdown'], 'gemini_html': analysis_result['html_output']})
@@ -708,6 +748,23 @@ def api_submit_advanced_chat():
     entity_type = None
     entity_name = None
     
+    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (General) ---
+    historical_data_summary = ""
+    # Si es una consulta general (sin entidad detectada) y pide evolución
+    if any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
+        try:
+            print("Detectada intención de evolución general (Top 5).")
+            db_path = current_app.config['DATABASE_FILE']
+            # Pedimos el Top 5 (o lo que esté en config)
+            historical_data_summary = get_student_evolution_summary(
+                db_path, 
+                top_n=current_app.config.get('TOP_N_EVOLUTION', 5) 
+            )
+        except Exception as e:
+            print(f"Error al obtener resumen de evolución general: {e}")
+            historical_data_summary = f"Error al consultar historial: {e}"
+    # --- FIN: DETECCIÓN DE INTENCIÓN ---
+
     # Obtenemos la ruta del archivo una sola vez
     file_path = session.get('current_file_path')
 
@@ -736,19 +793,24 @@ def api_submit_advanced_chat():
             # Pasamos el file_path requerido como primer argumento.
             data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
 
-    if not data_string:
+    if not data_string and not historical_data_summary: # Si no hay entidad Y no es consulta de evolución
         print("DEBUG: Chat Avanzado detectó consulta GENERAL. Usando resumen del dashboard.")
         file_summary = session.get('file_summary', {})
         import json
         data_string = "Contexto: A continuación se presenta un resumen estadístico general del colegio, no el listado completo de alumnos.\n\n"
         data_string += json.dumps(file_summary, indent=2, ensure_ascii=False)
+    elif not data_string and historical_data_summary:
+        print("DEBUG: Chat Avanzado detectó consulta de EVOLUCIÓN. No se pasarán datos del CSV actual.")
+        # Dejamos data_string vacío a propósito, el resumen histórico es el contexto principal.
+        data_string = "Contexto: La consulta es sobre evolución histórica. No se proporcionan datos del CSV actual, ya que el resumen de evolución se adjunta por separado."
     
     history_list = session.get('advanced_chat_history', [])
     history_fmt = format_chat_history_for_prompt(history_list)
     
     analysis_result = analyze_data_with_gemini(
         data_string, user_prompt, vector_store, vector_store_followups, history_fmt, 
-        is_direct_chat_query=True, entity_type=entity_type, entity_name=entity_name
+        is_direct_chat_query=True, entity_type=entity_type, entity_name=entity_name,
+        historical_data_summary_string=historical_data_summary # <-- PASAR EL RESUMEN
     )
     
     if not analysis_result.get('error'):
