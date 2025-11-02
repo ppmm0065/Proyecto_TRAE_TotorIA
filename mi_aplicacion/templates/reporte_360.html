@@ -99,14 +99,26 @@
 
 {% block panel_center_content %}
 <div class="flex flex-col h-full">
+    
+    {# --- INICIO: MODIFICACIÓN EN ESTE BLOQUE --- #}
     <div class="flex justify-between items-start mb-6">
         <div>
             <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
                 Reporte 360: <span class="text-indigo-600">{{ nombre_entidad }}</span>
             </h1>
-            <p class="text-lg font-normal text-slate-500">({{ tipo_entidad|capitalize }})</p>
+            {% if timestamp_generacion %}
+            {# MODIFICADO: Se quitó .split(' ')[0] para mostrar la hora #}
+            <p class="text-lg font-normal text-slate-500">
+                ({{ tipo_entidad|capitalize }}) - Emitido el: {{ timestamp_generacion }}
+            </p>
+            {% else %}
+            <p class="text-lg font-normal text-slate-500">
+                ({{ tipo_entidad|capitalize }})
+            </p>
+            {% endif %}
         </div>
     </div>
+    {# --- FIN: MODIFICACIÓN --- #}
 
     {% if reporte_html %}
         {% if reporte_html.startswith("Error:") %}

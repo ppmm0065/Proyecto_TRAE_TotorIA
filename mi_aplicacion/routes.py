@@ -11,6 +11,8 @@ import traceback
 import markdown
 from urllib.parse import unquote, quote 
 import numpy as np 
+import pytz
+from pytz import timezone
 
 from langchain_community.vectorstores import FAISS 
 
@@ -47,6 +49,10 @@ from .app_logic import (
 import sqlite3
 
 main_bp = Blueprint('main', __name__)
+
+# --- INICIO: DEFINICIÓN DE ZONA HORARIA ---
+SANTIAGO_TZ = timezone('America/Santiago')
+# --- FIN: DEFINICIÓN DE ZONA HORARIA ---
 
 # --- Rutas Principales ---
 @main_bp.route('/')
@@ -903,6 +909,13 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
     if reporte_360_id:
         observaciones_del_reporte = get_observations_for_reporte_360(db_path, reporte_360_id)
 
+# --- INICIO: MODIFICACIÓN ---
+    # Generar el timestamp actual en UTC y convertirlo a Santiago
+    utc_now = datetime.datetime.now(pytz.utc)
+    santiago_now = utc_now.astimezone(SANTIAGO_TZ)
+    timestamp_generacion_actual = santiago_now.strftime('%d/%m/%Y %H:%M')
+    # --- FIN: MODIFICACIÓN ---
+
     return render_template('reporte_360.html', 
                            page_title=f"Reporte 360 - {nombre_entidad}", 
                            tipo_entidad=tipo_entidad, 
@@ -910,7 +923,8 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
                            reporte_html=reporte_html, 
                            reporte_360_id=reporte_360_id, 
                            observaciones_reporte=observaciones_del_reporte,
-                           filename=current_csv_filename)
+                           filename=current_csv_filename,
+                           timestamp_generacion=timestamp_generacion_actual) # <-- Variable añadida
 
 @main_bp.route('/descargar_reporte_360_html/<tipo_entidad>/<path:valor_codificado>')
 def descargar_reporte_360_html(tipo_entidad, valor_codificado):
@@ -1013,7 +1027,12 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
 
     session['current_intervention_plan_html'] = plan_html
     session['current_intervention_plan_markdown'] = plan_markdown 
-    session['current_intervention_plan_date'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    # --- INICIO: MODIFICACIÓN ---
+    # Guardar el timestamp de Santiago en la sesión
+    utc_now = datetime.datetime.now(pytz.utc)
+    santiago_now = utc_now.astimezone(SANTIAGO_TZ)
+    session['current_intervention_plan_date'] = santiago_now.strftime('%d/%m/%Y %H:%M')
+    # --- FIN: MODIFICACIÓN ---
     session['current_intervention_plan_for_entity_type'] = tipo_entidad
     session['current_intervention_plan_for_entity_name'] = nombre_entidad
     session.modified = True
@@ -1067,7 +1086,16 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                 
                 if plan_data:
                     plan_html_content = markdown.markdown(plan_data['follow_up_comment'])
-                    plan_date = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M:%S')
+                    # --- INICIO: MODIFICACIÓN ---
+                    # Convertir el timestamp de la BD (UTC) a Santiago
+                    try:
+                        naive_dt = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S')
+                        utc_dt = pytz.utc.localize(naive_dt)
+                        santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                        plan_date = santiago_dt.strftime('%d/%m/%Y %H:%M')
+                    except (ValueError, TypeError):
+                        plan_date = plan_data.get("timestamp", "Fecha no válida")
+                    # --- FIN: MODIFICACIÓN ---
                     current_filename = plan_data['related_filename'] # Usamos el nombre del archivo original del reporte
                 else:
                     flash(f'No se encontró el plan de intervención con ID {plan_id_to_load} para esta entidad.', 'warning')
@@ -1198,7 +1226,26 @@ def biblioteca_reportes():
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(base_query, tuple(query_params))
-            reportes = [dict(row) for row in cursor.fetchall()]
+            # --- INICIO: MODIFICACIÓN ---
+            # Formatear el timestamp aquí, convirtiendo de UTC a Santiago
+            rows = cursor.fetchall()
+            reportes = []
+            for row in rows:
+                reporte_dict = dict(row)
+                try:
+                    # 1. Parsear el string de la BD (asumiendo UTC)
+                    naive_dt = datetime.datetime.strptime(reporte_dict['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    # 2. Localizarlo como UTC
+                    utc_dt = pytz.utc.localize(naive_dt)
+                    # 3. Convertir a zona horaria de Santiago
+                    santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                    # 4. Formatear
+                    reporte_dict['timestamp_formateado'] = santiago_dt.strftime('%d/%m/%Y %H:%M')
+                except (ValueError, TypeError):
+                    reporte_dict['timestamp_formateado'] = reporte_dict.get('timestamp', 'Fecha no válida')
+                reportes.append(reporte_dict)
+            # --- FIN: MODIFICACIÓN ---
+
     except Exception as e:
         flash(f'Error al cargar la biblioteca de reportes: {e}', 'danger')
         traceback.print_exc()
@@ -1222,7 +1269,17 @@ def ver_reporte_360(reporte_id):
             reporte_html = markdown.markdown(report_data['follow_up_comment'])
             observaciones = get_observations_for_reporte_360(db_path, reporte_id)
             
-            # Guardamos en sesión para mantener el flujo contextual
+            # --- INICIO: MODIFICACIÓN ---
+            # Formatear el timestamp histórico, convirtiendo de UTC a Santiago
+            try:
+                naive_dt = datetime.datetime.strptime(report_data['timestamp'], '%Y-%m-%d %H:%M:%S')
+                utc_dt = pytz.utc.localize(naive_dt)
+                santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                timestamp_formateado = santiago_dt.strftime('%d/%m/%Y %H:%M')
+            except (ValueError, TypeError):
+                timestamp_formateado = report_data.get('timestamp', 'Fecha no válida')
+            # --- FIN: MODIFICACIÓN ---
+
             session['reporte_360_markdown'] = report_data['follow_up_comment']
             session['reporte_360_entidad_tipo'] = report_data['related_entity_type']
             session['reporte_360_entidad_nombre'] = report_data['related_entity_name']
@@ -1235,7 +1292,8 @@ def ver_reporte_360(reporte_id):
                                    reporte_html=reporte_html,
                                    reporte_360_id=reporte_id,
                                    observaciones_reporte=observaciones,
-                                   filename=report_data['related_filename'])
+                                   filename=report_data['related_filename'],
+                                   timestamp_generacion=timestamp_formateado) # <-- Variable añadida
         else:
             flash('No se encontró el Reporte 360 solicitado.', 'warning')
             return redirect(url_for('main.biblioteca_reportes'))
