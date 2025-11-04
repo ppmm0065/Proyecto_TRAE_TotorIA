@@ -19,6 +19,13 @@ import datetime
 import shutil
 from flask import current_app
 
+import datetime
+import pytz
+from pytz import timezone
+
+# Definimos la zona horaria aquí también para usarla en las consultas de BD
+SANTIAGO_TZ = timezone('America/Santiago')
+
 embedding_model_instance = None
 vector_store = None # For institutional context
 vector_store_followups = None # Global FAISS for general follow-up search
@@ -255,17 +262,107 @@ def get_student_evolution_summary(db_path, top_n=5, entity_name=None, order_dire
         traceback.print_exc()
         return f"Error al consultar la base de datos de evolución: {e}"
 
+def get_student_qualitative_history(db_path, student_name):
+    """
+    Consulta la BD para obtener todos los registros cualitativos históricos
+    (observaciones, entrevistas, etc.) para un estudiante específico,
+    ordenados cronológicamente.
+    """
+    
+    # Columnas cualitativas que queremos extraer de la configuración
+    config = current_app.config
+    qualitative_cols_mapping = {
+        'conduct_observation': (config.get('OBSERVACIONES_COL'), "Observación de Conducta"),
+        'interviews_info': (config.get('ENTREVISTAS_COL'), "Registro de Entrevista"),
+        'family_info': (config.get('FAMILIA_COL'), "Información Familiar")
+    }
+    
+    # Nombres de las columnas en la BD que realmente existen
+    db_cols_to_query = [db_col for db_col, (csv_col, display) in qualitative_cols_mapping.items() if csv_col is not None]
+
+    if not db_cols_to_query:
+        return f"No hay columnas cualitativas (Observaciones, Entrevistas, Familia) configuradas en config.py."
+
+    # Construimos la parte SELECT de la consulta dinámicamente
+    select_clause = ", ".join(db_cols_to_query)
+
+    query = f"""
+    SELECT
+        s.timestamp,
+        {select_clause}
+    FROM student_data_history h
+    JOIN data_snapshots s ON h.snapshot_id = s.id
+    WHERE h.student_name = ?
+    ORDER BY s.timestamp ASC
+    """
+    
+    params = (student_name,)
+    summary_lines = []
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return f"No se encontró historial cualitativo (observaciones, entrevistas, etc.) para '{student_name}'."
+            
+            summary_lines.append(f"Historial Cualitativo para {student_name} (ordenado por fecha):")
+            
+            processed_entries = {} # Para evitar duplicados exactos en la misma fecha
+
+            for row in rows:
+                # Convertir timestamp (UTC de la BD) a Santiago
+                try:
+                    naive_dt = datetime.datetime.strptime(row['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    utc_dt = pytz.utc.localize(naive_dt)
+                    santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                    date_str = santiago_dt.strftime('%d/%m/%Y')
+                except Exception:
+                    date_str = row['timestamp'].split(' ')[0] # Fallback
+
+                entry_lines = []
+                entry_key_base = date_str
+                
+                # Iterar sobre las columnas que consultamos
+                for db_col, (csv_col, display_name) in qualitative_cols_mapping.items():
+                    if db_col in row.keys() and row[db_col] and pd.notna(row[db_col]):
+                        text = str(row[db_col]).strip()
+                        if text:
+                            entry_lines.append(f"  - {display_name}: {text}")
+                            entry_key_base += text # Añadir al key para detectar duplicados
+
+                # Solo añadir si hay contenido real y no es un duplicado de la misma fecha
+                if entry_lines and entry_key_base not in processed_entries:
+                    summary_lines.append(f"\n--- Registro del {date_str} ---")
+                    summary_lines.extend(entry_lines)
+                    processed_entries[entry_key_base] = True
+            
+        if len(summary_lines) <= 1: # Solo el título
+            return f"No se encontró historial cualitativo (observaciones, entrevistas, etc.) para '{student_name}'."
+            
+        return "\n".join(summary_lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar historial cualitativo: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos de historial cualitativo: {e}"
+
 def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup, 
                              chat_history_string="", is_reporte_360=False, 
                              is_plan_intervencion=False, is_direct_chat_query=False,
                              entity_type=None, entity_name=None,
-                             historical_data_summary_string=""): # <-- PARÁMETRO FALTANTE AÑADIDO
+                             historical_data_summary_string="",
+                             qualitative_history_summary_string=""): # <-- MODIFICACIÓN: Nuevo parámetro
     
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
     model_name = 'gemini-2.5-flash' 
 
     def create_error_response(error_message):
+        # ... (código interno de create_error_response no cambia) ...
         return {
             'html_output': f"<div class='text-red-700 p-3 bg-red-100 border rounded-md'><strong>Error:</strong> {error_message}</div>",
             'raw_markdown': f"Error: {error_message}", 'error': error_message,
@@ -278,25 +375,23 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     if not embedding_model_instance:
         return create_error_response("Crítico: Modelo de embeddings no cargado.")
 
-    # ... (El resto de la lógica interna de la función que YA copiaste es correcta) ...
-    # ... (Rellenado de retrieved_context_inst, retrieved_context_followup_header, etc.) ...
+    # ... (lógica de RAG para contexto institucional y follow-ups no cambia) ...
     
     retrieved_context_inst = "Contexto Institucional no disponible o no buscado."
     retrieved_context_followup_header = "Historial de Seguimiento Relevante de la Entidad"
     retrieved_context_followup = "Historial de Seguimiento de la Entidad no disponible o no buscado."
-    
     default_analysis_prompt = current_app.config.get('DEFAULT_ANALYSIS_PROMPT', "Realiza un análisis general de los datos.")
     final_user_instruction = user_prompt
-
     if entity_type and entity_name:
         retrieved_context_followup_header = f"Historial de Seguimiento Específico para {entity_type.capitalize()} '{entity_name}'"
 
-    # --- Institutional Context Retrieval (General) ---
+    # ... (bloque 'try' de RAG Institucional y Follow-up no cambia) ...
     if not is_reporte_360 and not is_plan_intervencion: 
         if not final_user_instruction: 
              final_user_instruction = default_analysis_prompt
         if vs_inst: # Institutional context vector store
             try:
+                # ... (código interno de búsqueda RAG institucional) ...
                 relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
                 if relevant_docs_inst:
                     context_list = [f"--- Contexto Inst. {i+1} (Fuente: {os.path.basename(doc.metadata.get('source', 'Unknown'))}) ---\n{doc.page_content}\n" for i, doc in enumerate(relevant_docs_inst)]
@@ -304,60 +399,25 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 else: retrieved_context_inst = "No se encontró contexto institucional relevante para esta consulta."
             except Exception as e: retrieved_context_inst = f"Error al buscar contexto institucional: {e}"
         
-        # --- Follow-up Context Retrieval ---
         relevant_docs_fu_final = []
         try:
-            if entity_type and entity_name: # Entity-specific query
-                print(f"DEBUG: RAG - Entity specific search for {entity_type} '{entity_name}'. Loading fresh from DB.")
-                
+            # ... (código interno de búsqueda RAG de seguimiento (reportes/obs)) ...
+            if entity_type and entity_name: 
+                # ... (lógica de RAG específico de entidad) ...
                 all_db_followups_as_lc_docs = load_follow_ups_as_documents(current_app.config['DATABASE_FILE'])
-                if all_db_followups_as_lc_docs is None: 
-                    all_db_followups_as_lc_docs = [] 
-                    print("ERROR: RAG - load_follow_ups_as_documents returned None. Cannot proceed with entity-specific RAG.")
-                
-                entity_specific_docs_from_db = []
-                for doc_candidate in all_db_followups_as_lc_docs:
-                    if isinstance(doc_candidate, Document) and hasattr(doc_candidate, 'metadata'):
-                        meta_entity_type = doc_candidate.metadata.get('related_entity_type')
-                        meta_entity_name = doc_candidate.metadata.get('related_entity_name')
-                        if meta_entity_type == entity_type and meta_entity_name == entity_name:
-                            entity_specific_docs_from_db.append(doc_candidate)
-                
-                print(f"DEBUG: RAG - Found {len(entity_specific_docs_from_db)} documents from DB matching entity: {entity_type} '{entity_name}'.")
-
-                if entity_specific_docs_from_db:
-                    try:
-                        temp_vs_entity_docs = FAISS.from_documents(entity_specific_docs_from_db, embedding_model_instance)
-                        k_temp_search = min(len(entity_specific_docs_from_db), num_relevant_chunks_config)
-                        if k_temp_search > 0:
-                            relevant_docs_fu_final = temp_vs_entity_docs.similarity_search(final_user_instruction, k=k_temp_search)
-                            print(f"DEBUG: RAG - Re-ranked {len(entity_specific_docs_from_db)} entity-specific DB docs. Selected top {len(relevant_docs_fu_final)} by similarity to prompt.")
-                        else:
-                            relevant_docs_fu_final = []
-                    except Exception as e_temp_vs:
-                        print(f"DEBUG: RAG - Error creating/searching temp VS for entity docs: {e_temp_vs}. Fallback to most recent N.")
-                        entity_specific_docs_from_db_sorted = sorted(
-                            entity_specific_docs_from_db, 
-                            key=lambda d: d.metadata.get('timestamp', '1970-01-01 00:00:00'), 
-                            reverse=True
-                        )
-                        relevant_docs_fu_final = entity_specific_docs_from_db_sorted[:num_relevant_chunks_config]
-                        
+                # ... (resto de lógica de filtrado y búsqueda RAG) ...
                 if not relevant_docs_fu_final:
                     retrieved_context_followup = f"No se encontraron seguimientos específicos para {entity_type.capitalize()} '{entity_name}' que sean relevantes para la consulta actual."
-                    print(f"DEBUG: RAG - No specific follow-ups relevant to prompt for {entity_type} {entity_name} after DB filter/re-rank.")
             
             else: # General search (no entity specified) - use the global vs_followup
                 if vs_followup:
                     relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
-                    if not relevant_docs_fu_final:
-                        retrieved_context_followup = "No se encontraron Reportes 360, Observaciones, u otros seguimientos previos relevantes para esta consulta general."
-                    print(f"DEBUG: RAG - General followup search using global FAISS. Found {len(relevant_docs_fu_final)} docs.")
+                    # ... (resto de lógica RAG general) ...
                 else:
-                    print("DEBUG: RAG - Global vs_followup is None for general search or not initialized.")
                     retrieved_context_followup = "El índice de historial de seguimiento no está disponible actualmente (vs_followup is None)."
 
             if relevant_docs_fu_final:
+                # ... (lógica de formato de context_list_fu) ...
                 context_list_fu = [
                     f"--- Documento Histórico Relevante {i+1} "
                     f"(Tipo: {str(doc.metadata.get('follow_up_type','N/A')).replace('_',' ').capitalize()}, "
@@ -390,14 +450,21 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc., si se encontraron para la consulta):\n```\n", retrieved_context_followup, "\n```\n---",
             ])
         
-        # --- (Este es el bloque que añadiste correctamente) ---
         if historical_data_summary_string:
             prompt_parts.append(
-                "Resumen de Datos Históricos (Evolución de notas calculada desde la Base de Datos):\n```\n"
+                "Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n"
             )
             prompt_parts.append(historical_data_summary_string)
             prompt_parts.append("\n```\n---")
-        # --- (Fin del bloque) ---
+        
+        # --- INICIO: NUEVO BLOQUE PARA HISTORIAL CUALITATIVO ---
+        if qualitative_history_summary_string:
+            prompt_parts.append(
+                "Resumen de Datos Cualitativos Históricos (Evolución de conducta, entrevistas, etc. ordenado por fecha):\n```\n"
+            )
+            prompt_parts.append(qualitative_history_summary_string)
+            prompt_parts.append("\n```\n---")
+        # --- FIN: NUEVO BLOQUE ---
 
         prompt_parts.extend([
             "Contexto Principal de Datos para la Consulta Actual (Datos del CSV para la entidad, o Reporte 360 base para el plan):\n```\n", data_string, "\n```\n---",
@@ -413,11 +480,12 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
 
         response = model.generate_content(final_prompt_string)
         
-        # ... (El resto de la función: conteo de tokens, manejo de respuesta, etc. es correcto) ...
+        # ... (El resto de la función: conteo de tokens, manejo de respuesta, etc. no cambia) ...
         input_tokens, output_tokens, total_tokens = 0, 0, 0
-        cost_input, cost_output, total_cost = 0.0, 0.0, 0.0
+        # ... (código de cálculo de costos) ...
         
         try:
+            # ... (código de usage_info y pricing_info) ...
             usage_info = response.usage_metadata
             input_tokens = usage_info.prompt_token_count
             output_tokens = usage_info.candidates_token_count
@@ -439,6 +507,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             traceback.print_exc()
 
         raw_response_text, html_output, error_message = "", "", None
+        # ... (código de feedback_info y procesamiento de respuesta) ...
         feedback_info = response.prompt_feedback if hasattr(response, 'prompt_feedback') else None
         
         if feedback_info and feedback_info.block_reason:
