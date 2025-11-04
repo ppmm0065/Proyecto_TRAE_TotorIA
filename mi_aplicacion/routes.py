@@ -417,10 +417,18 @@ def add_follow_up():
     return redirect(url_for('main.show_results'))
 
 # --- INICIO: DEFINIR PALABRAS CLAVE PARA DETECCIÓN DE INTENCIÓN ---
-EVOLUTION_KEYWORDS = ['evolución', 'mejora', 'mejorado', 'empeorado', 'historial', 
-                    'comparar', 'progresado', 'avanzado', 'cambiado', 'rendimiento histórico',
-                    'desempeño histórico']
-# --- FIN: DEFINIR PALABRAS CLAVE ---
+EVOLUTION_KEYWORDS = [
+    'evolución', 'mejora', 'mejorado', 'empeorado', 'historial', 
+    'comparar', 'progresado', 'avanzado', 'cambiado', 'rendimiento histórico',
+    'desempeño histórico', 
+    'variación', 'bajado', 'subido', 'aumentado', 'disminuido', 
+    'datos históricos', 'diferentes datos cargados', 'listar notas'
+]
+
+NEGATIVE_EVOLUTION_KEYWORDS = [
+    'peor', 'bajado', 'disminuido', 'caída', 'hacia abajo', 
+    'empeorado', 'regresión', 'menor rendimiento', 'menor variación'
+]
 
 # --- Rutas de API ---
 @main_bp.route('/api/alertas/menor_promedio_niveles')
@@ -607,16 +615,20 @@ def api_detalle_chat():
 
     prompt_lower = user_prompt.lower()
 
-    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (Específico de Entidad) ---
+    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (CON DIRECCIÓN) ---
     historical_data_summary = ""
-    # Solo buscamos evolución si es un alumno y el prompt lo sugiere
     if tipo_entidad == 'alumno' and any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
         try:
             print(f"Detectada intención de evolución para: {nombre_entidad}")
             db_path = current_app.config['DATABASE_FILE']
+            
+            # Determinar la dirección de la ordenación
+            order_dir = 'ASC' if any(kw in prompt_lower for kw in NEGATIVE_EVOLUTION_KEYWORDS) else 'DESC'
+            
             historical_data_summary = get_student_evolution_summary(
                 db_path, 
-                entity_name=nombre_entidad
+                entity_name=nombre_entidad,
+                order_direction=order_dir # <-- Nuevo parámetro
             )
         except Exception as e:
             print(f"Error al obtener resumen de evolución para {nombre_entidad}: {e}")
@@ -748,17 +760,20 @@ def api_submit_advanced_chat():
     entity_type = None
     entity_name = None
     
-    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (General) ---
+    # --- INICIO: DETECCIÓN DE INTENCIÓN DE EVOLUCIÓN (CON DIRECCIÓN) ---
     historical_data_summary = ""
-    # Si es una consulta general (sin entidad detectada) y pide evolución
     if any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
         try:
-            print("Detectada intención de evolución general (Top 5).")
+            print("Detectada intención de evolución general (Chat Avanzado).")
             db_path = current_app.config['DATABASE_FILE']
-            # Pedimos el Top 5 (o lo que esté en config)
+            
+            # Determinar la dirección de la ordenación
+            order_dir = 'ASC' if any(kw in prompt_lower for kw in NEGATIVE_EVOLUTION_KEYWORDS) else 'DESC'
+
             historical_data_summary = get_student_evolution_summary(
                 db_path, 
-                top_n=current_app.config.get('TOP_N_EVOLUTION', 5) 
+                top_n=current_app.config.get('TOP_N_EVOLUTION', 5),
+                order_direction=order_dir # <-- Nuevo parámetro
             )
         except Exception as e:
             print(f"Error al obtener resumen de evolución general: {e}")

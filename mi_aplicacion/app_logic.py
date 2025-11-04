@@ -143,10 +143,11 @@ def format_chat_history_for_prompt(chat_history_list, max_turns=None):
         formatted_history += f"Usuario: {user_query}\nAsistente: {gemini_answer_markdown}\n---\n"
     return formatted_history
 
-def get_student_evolution_summary(db_path, top_n=5, entity_name=None):
+def get_student_evolution_summary(db_path, top_n=5, entity_name=None, order_direction='DESC'): # <-- MODIFICACIÓN: Nuevo parámetro añadido
     """
     Consulta la base de datos para obtener un resumen de la evolución de las notas
     de los estudiantes entre la primera y la última instantánea de datos.
+    Acepta un parámetro 'order_direction' ('ASC' o 'DESC') para la ordenación.
     """
     
     # Esta consulta usa Expresiones de Tabla Comunes (CTE) para:
@@ -201,13 +202,18 @@ def get_student_evolution_summary(db_path, top_n=5, entity_name=None):
     
     params = []
     
-    # Si se pide la evolución de un estudiante específico
+    # --- MODIFICACIÓN: Validar la dirección para evitar inyección SQL ---
+    if order_direction.upper() not in ['ASC', 'DESC']:
+        order_direction = 'DESC' # Default seguro
+
     if entity_name:
         query += " WHERE student_name = ? AND grade_evolution != 0"
         params.append(entity_name)
     else:
-        # Si es general, ordenamos y limitamos al top N
-        query += " WHERE grade_evolution != 0 ORDER BY grade_evolution DESC LIMIT ?"
+        # --- MODIFICACIÓN: SQL dinámico para ASC/DESC ---
+        # Usamos f-string de forma segura solo para ASC/DESC validados
+        query += f" WHERE grade_evolution != 0 ORDER BY grade_evolution {order_direction} LIMIT ?"
+        # --- FIN MODIFICACIÓN ---
         params.append(top_n)
 
     summary_lines = []
@@ -227,7 +233,10 @@ def get_student_evolution_summary(db_path, top_n=5, entity_name=None):
             if entity_name:
                 summary_lines.append(f"Resumen de Evolución para {entity_name}:")
             else:
-                summary_lines.append(f"Resumen de Evolución de Notas (Top {len(rows)} Mejoras):")
+                # --- MODIFICACIÓN: Título dinámico ---
+                direction_text = "Mejoras" if order_direction.upper() == 'DESC' else "Caídas"
+                summary_lines.append(f"Resumen de Evolución de Notas (Top {len(rows)} {direction_text}):")
+                # --- FIN MODIFICACIÓN ---
                 
             for i, row in enumerate(rows):
                 evolution_sign = '+' if row['grade_evolution'] > 0 else ''
@@ -245,8 +254,6 @@ def get_student_evolution_summary(db_path, top_n=5, entity_name=None):
         print(f"Error CRÍTICO al consultar evolución de estudiantes: {e}")
         traceback.print_exc()
         return f"Error al consultar la base de datos de evolución: {e}"
-
-# --- FIN: NUEVA FUNCIÓN DE CONSULTA DE EVOLUCIÓN ---
 
 def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup, 
                              chat_history_string="", is_reporte_360=False, 
