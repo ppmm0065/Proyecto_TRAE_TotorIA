@@ -7,10 +7,16 @@
     <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Biblioteca de Reportes</h1>
     <p class="text-slate-600 mb-8">Historial de análisis generados para el archivo: <strong class="text-indigo-700">{{ filename }}</strong></p>
 
-    <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200">
+    {# --- INICIO: MODIFICACIÓN --- #}
+    {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' y añadido borde #}
+    <div class="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200">
+    {# --- FIN: MODIFICACIÓN --- #}
         <div class="overflow-x-auto custom-scrollbar">
             <table class="min-w-full divide-y divide-slate-200 text-sm">
-                <thead class="bg-slate-50">
+                {# --- INICIO: MODIFICACIÓN --- #}
+                {# Cambiado 'bg-slate-50' a 'bg-slate-100' para contrastar con la tarjeta #}
+                <thead class="bg-slate-100">
+                {# --- FIN: MODIFICACIÓN --- #}
                     <tr>
                         <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Fecha de Creación</th>
                         <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Tipo de Reporte</th>
