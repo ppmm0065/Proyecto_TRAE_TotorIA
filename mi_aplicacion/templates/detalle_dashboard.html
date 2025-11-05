@@ -67,65 +67,95 @@
     </div>
 
     {% if error_message %}
-        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
-            <p class="font-bold">Error</p>
-            <p>{{ error_message }}</p>
+        {# --- INICIO: MODIFICACIÓN Tarjeta de Error --- #}
+        {# Convertimos la alerta en una tarjeta 'bg-slate-50' que contiene la alerta 'bg-red-50' #}
+        <div class="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200 mb-8">
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+                <p class="font-bold">Error</p>
+                <p>{{ error_message }}</p>
+            </div>
         </div>
+        {# --- FIN: MODIFICACIÓN --- #}
     {% elif datos_dashboard %}
         <div id="data-visualization-section" class="mb-8">
-            {% if tipo_entidad == 'alumno' and datos_dashboard.info_general %}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Promedio</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.Promedio }}</p></div>
-                    <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Curso</p><p class="text-xl font-bold text-purple-900">{{ datos_dashboard.info_general.Curso }}</p></div>
-                    <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Edad</p><p class="text-2xl font-bold text-green-900">{{ datos_dashboard.info_general.Edad }}</p></div>
-                    <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-orange-900">{{ datos_dashboard.info_general.AsignaturaMenorPromedio }}</p></div>
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {% if datos_dashboard.notas_asignaturas_original and datos_dashboard.notas_asignaturas_original.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Calificaciones Individuales</h3><canvas id="alumnoNotasOriginalChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                    {% if datos_dashboard.student_vs_course_level_chart_data and datos_dashboard.student_vs_course_level_chart_data.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Comparativa vs. Curso y Nivel</h3><canvas id="studentComparativeChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                </div>
-
-            {% elif tipo_entidad == 'curso' and datos_dashboard.info_general %}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Nº Alumnos</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.NumeroAlumnos }}</p></div>
-                    <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso }}</p></div>
-                    <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-green-900">{{ datos_dashboard.info_general.PeorAsignatura }}</p></div>
-                    {% if datos_dashboard.info_general.AlumnoPeorPromedioNombre and datos_dashboard.info_general.AlumnoPeorPromedioNombre != 'N/A' %}
-                        <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor }})</p></a>
-                    {% else %}
-                        <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }}</p></div>
-                    {% endif %}
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    {% if datos_dashboard.distribucion_promedios_curso and datos_dashboard.distribucion_promedios_curso.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Distribución de Promedios</h3><canvas id="cursoDistribucionChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                    {% if datos_dashboard.course_vs_level_chart_data and datos_dashboard.course_vs_level_chart_data.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Promedio del Curso vs. Nivel</h3><canvas id="courseVsLevelChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                </div>
-                {% if datos_dashboard.heatmap_data %}
-                <div class="bg-white p-4 rounded-lg shadow border mb-6"><h3 class="text-center font-semibold text-slate-700 mb-3">Mapa de Calor de Calificaciones</h3><div class="overflow-x-auto custom-scrollbar"><table class="heatmap-table"><thead><tr><th class="student-name">Estudiante</th>{% for header in datos_dashboard.heatmap_data.subject_headers %}<th>{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in datos_dashboard.heatmap_data.student_performance_rows %}<tr><td class="student-name">{{ row.student_name }}</td>{% for grade in row.grades %}<td class="{{ grade.color_class }}">{{ grade.score_display }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+            
+            {# --- INICIO: MODIFICACIÓN Tarjeta de KPIs --- #}
+            {# Agrupamos todos los KPIs en una sola tarjeta 'bg-slate-50' #}
+            <div class="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200 mb-8">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Resumen de Métricas</h2>
+                {% if tipo_entidad == 'alumno' and datos_dashboard.info_general %}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {# Los KPIs internos (bg-blue-50) resaltan bien sobre la tarjeta (bg-slate-50) #}
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Promedio</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.Promedio }}</p></div>
+                        <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Curso</p><p class="text-xl font-bold text-purple-900">{{ datos_dashboard.info_general.Curso }}</p></div>
+                        <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Edad</p><p class="text-2xl font-bold text-green-900">{{ datos_dashboard.info_general.Edad }}</p></div>
+                        <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-orange-900">{{ datos_dashboard.info_general.AsignaturaMenorPromedio }}</p></div>
+                    </div>
+                {% elif tipo_entidad == 'curso' and datos_dashboard.info_general %}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Nº Alumnos</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.NumeroAlumnos }}</p></div>
+                        <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso }}</p></div>
+                        <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-green-900">{{ datos_dashboard.info_general.PeorAsignatura }}</p></div>
+                        {% if datos_dashboard.info_general.AlumnoPeorPromedioNombre and datos_dashboard.info_general.AlumnoPeorPromedioNombre != 'N/A' %}
+                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor }})</p></a>
+                        {% else %}
+                            <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }}</p></div>
+                        {% endif %}
+                    </div>
                 {% endif %}
+            </div>
+            {# --- FIN: MODIFICACIÓN Tarjeta de KPIs --- #}
 
-            {% else %}
-                 <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4" role="alert">
-                    <p class="font-bold">Información no disponible</p>
-                    <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad }}</span>.</p>
-                </div>
-            {% endif %}
+            {# --- INICIO: MODIFICACIÓN Tarjeta de Gráficos --- #}
+            {# Agrupamos los gráficos en una sola tarjeta 'bg-slate-50' #}
+            <div class="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200 mb-8">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Visualización de Datos</h2>
+                
+                {% if tipo_entidad == 'alumno' %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {% if datos_dashboard.notas_asignaturas_original and datos_dashboard.notas_asignaturas_original.labels %}
+                        {# Cambiamos 'bg-white' a 'bg-gray-50' o 'bg-white' para que contraste con la tarjeta 'bg-slate-50' #}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Calificaciones Individuales</h3><canvas id="alumnoNotasOriginalChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                        {% if datos_dashboard.student_vs_course_level_chart_data and datos_dashboard.student_vs_course_level_chart_data.labels %}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Comparativa vs. Curso y Nivel</h3><canvas id="studentComparativeChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                    </div>
+
+                {% elif tipo_entidad == 'curso' %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        {% if datos_dashboard.distribucion_promedios_curso and datos_dashboard.distribucion_promedios_curso.labels %}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Distribución de Promedios</h3><canvas id="cursoDistribucionChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                        {% if datos_dashboard.course_vs_level_chart_data and datos_dashboard.course_vs_level_chart_data.labels %}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Promedio del Curso vs. Nivel</h3><canvas id="courseVsLevelChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                    </div>
+                    {% if datos_dashboard.heatmap_data %}
+                    {# El heatmap se mantiene en su propia sub-tarjeta 'bg-white' para legibilidad #}
+                    <div class="bg-white p-4 rounded-lg shadow-sm border mt-6"><h3 class="text-center font-semibold text-slate-700 mb-3">Mapa de Calor de Calificaciones</h3><div class="overflow-x-auto custom-scrollbar"><table class="heatmap-table"><thead><tr><th class="student-name">Estudiante</th>{% for header in datos_dashboard.heatmap_data.subject_headers %}<th>{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in datos_dashboard.heatmap_data.student_performance_rows %}<tr><td class="student-name">{{ row.student_name }}</td>{% for grade in row.grades %}<td class="{{ grade.color_class }}">{{ grade.score_display }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+                    {% endif %}
+                
+                {% else %}
+                    <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4" role="alert">
+                        <p class="font-bold">Información no disponible</p>
+                        <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad }}</span>.</p>
+                    </div>
+                {% endif %}
+            </div>
+             {# --- FIN: MODIFICACIÓN Tarjeta de Gráficos --- #}
         </div>
+
         {# --- SECCIÓN DE CHAT CON GEMINI (DETALLE) --- #}
-        <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-300">
+        {# --- INICIO: MODIFICACIÓN Tarjeta de Chat --- #}
+        {# Convertimos la sección de chat en una tarjeta 'bg-slate-50' #}
+        <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-200">
             <h2 class="text-xl font-semibold text-slate-800 mb-3">
                 <i class="fas fa-comments mr-2 text-teal-500"></i>Consultar sobre <span class="text-teal-600">{{ nombre_entidad }}</span>
             </h2>
-            <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
-                <div id="chat-history-detalle" class="h-64 overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-slate-50 custom-scrollbar space-y-4">
+            <div class="bg-slate-50 p-4 rounded-lg shadow-md border border-slate-200">
+                {# El historial de chat (bg-slate-50) se vuelve 'bg-white' o 'bg-slate-100' para contrastar #}
+                <div id="chat-history-detalle" class="h-64 overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-white custom-scrollbar space-y-4">
                     {% for message in chat_history_detalle %}
                         {% if message.user %}
                             <div class="user-message text-right mb-2"><p class="inline-block bg-indigo-500 text-white text-sm rounded-lg px-3 py-2 shadow"><strong>Tú:</strong> {{ message.user | replace('\n', '<br>') | safe }}</p></div>
@@ -142,6 +172,7 @@
                 </form>
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Tarjeta de Chat --- #}
     {% endif %}
 </div>
 {% endblock panel_center_content %}
