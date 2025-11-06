@@ -66,6 +66,51 @@ RANGO_EDAD_MEDIA = (14, 18)
 ARCHIVO_SALIDA = "datos_completos_800_estudiantes.csv"
 ROSTER_FILE = "roster_estudiantes.json"
 
+def _generar_lista_promedios_objetivo():
+    """
+    Genera una lista de promedios objetivo forzando la distribución
+    solicitada por el usuario (media ~5.9, percentiles específicos).
+    """
+    print("Generando distribución de promedios objetivo...")
+    
+    lista_promedios = []
+    
+    # 1. Calcular el número de estudiantes en cada tramo
+    num_bajos = int(NUM_ESTUDIANTES * 0.10) # 10%
+    num_top = int(NUM_ESTUDIANTES * 0.01)   # 1%
+    num_altos = int(NUM_ESTUDIANTES * 0.25) - num_top # 24% (25% total - 1% top)
+    num_medios = NUM_ESTUDIANTES - num_bajos - num_top - num_altos # 65%
+    
+    # 2. Generar promedios para cada tramo
+    
+    # Tramo Bajo (10%): <= 4.0
+    for _ in range(num_bajos):
+        lista_promedios.append(random.uniform(3.0, 4.0))
+        
+    # Tramo Top (1%): 6.9-7.0
+    for _ in range(num_top):
+        lista_promedios.append(random.uniform(6.9, 7.0))
+        
+    # Tramo Alto (24%): 6.5-6.89
+    for _ in range(num_altos):
+        lista_promedios.append(random.uniform(6.5, 6.89))
+        
+    # Tramo Medio (65%): 4.1 - 6.4 (Gaussiano)
+    # Para que la media global sea 5.9, la media de este grupo debe ser ~5.95
+    mu_medios = 5.95
+    sigma_medios = 0.4 # Desviación para cubrir el rango (4.1 a 6.4)
+    
+    for _ in range(num_medios):
+        prom = random.normalvariate(mu_medios, sigma_medios)
+        # Forzar a los límites 4.1 y 6.4
+        prom = max(4.1, min(6.4, prom))
+        lista_promedios.append(prom)
+
+    # 3. Barajar la lista y retornarla
+    print(f"Distribución generada. Media: {sum(lista_promedios) / len(lista_promedios):.2f}")
+    random.shuffle(lista_promedios)
+    return lista_promedios
+
 # --- INICIALIZACIÓN ---
 fake = Faker('es_ES') # Nombres en español
 
@@ -76,31 +121,49 @@ print("Nueva semilla aleatoria inicializada.")
 
 datos_completos = []
 
-# --- GENERACIÓN DE ROSTER DE ESTUDIANTES (LÓGICA MEJORADA) ---
+# 1. Generar la lista de promedios base ANTES de cargar o crear el roster
+lista_promedios_base = _generar_lista_promedios_objetivo()
+lista_promedios_base_copia = lista_promedios_base.copy() # Copia para el bloque IF
+
 estudiantes = []
 if os.path.exists(ROSTER_FILE):
-    # --- INICIO BLOQUE MODIFICADO (FIX 1) ---
-    # (Reemplace este bloque 'if' completo, aprox. líneas 81-90)
     print(f"Cargando roster de estudiantes existente desde '{ROSTER_FILE}'...")
     with open(ROSTER_FILE, 'r', encoding='utf-8') as f:
         estudiantes = json.load(f)
     print(f"Se cargaron {len(estudiantes)} estudiantes.")
     
-    # Actualizar datos que pueden variar (ej. asistencia, profesor)
-    # Y ACTUALIZAR ENTREVISTAS SI FALTAN O SON ANTIGUAS
-    print("Actualizando roster existente con nueva lógica de entrevistas...")
-    hubo_actualizacion_entrevista = False
-    for est in estudiantes:
+    # Flags para saber si hay que re-guardar
+    hubo_actualizacion = False
+
+    # Si el número de estudiantes en el roster no coincide, advertir.
+    if len(estudiantes) != len(lista_promedios_base_copia):
+        print(f"ADVERTENCIA: Roster tiene {len(estudiantes)} est. vs {len(lista_promedios_base_copia)} promedios generados.")
+        # Ajustar lista de promedios por si acaso
+        while len(lista_promedios_base_copia) < len(estudiantes):
+            lista_promedios_base_copia.append(random.uniform(4.0, 5.0)) # Relleno
+        lista_promedios_base_copia = lista_promedios_base_copia[:len(estudiantes)]
+        
+    print("Actualizando roster existente con nueva lógica (Entrevistas y Promedio Objetivo)...")
+    
+    # Mezclar la lista de promedios antes de asignar a estudiantes existentes
+    random.shuffle(lista_promedios_base_copia)
+    
+    for i, est in enumerate(estudiantes):
+        # Actualizar datos que pueden variar
         est["asistencia"] = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
         est["profesor"] = f"{fake.first_name()} {fake.last_name()}"
         
-        # Si el estudiante cargado no tiene entrevista (o tiene la antigua), se la asignamos.
+        # FIX Entrevistas (de la vez anterior)
         if "Entrevistas" not in est or est["Entrevistas"] == "Sin entrevistas registradas.":
             est["Entrevistas"] = random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas."
-            hubo_actualizacion_entrevista = True
+            hubo_actualizacion = True
+            
+        # NUEVA LÓGICA: Añadir Promedio Objetivo si no existe
+        if "promedio_objetivo" not in est:
+            est["promedio_objetivo"] = round(lista_promedios_base_copia[i], 2)
+            hubo_actualizacion = True
 
-    # Si actualizamos entrevistas, debemos re-guardar el roster
-    if hubo_actualizacion_entrevista:
+    if hubo_actualizacion:
         print("Roster actualizado. Guardando cambios en 'roster_estudiantes.json'...")
         try:
             with open(ROSTER_FILE, 'w', encoding='utf-8') as f:
@@ -110,8 +173,12 @@ if os.path.exists(ROSTER_FILE):
             print(f"Error al re-guardar el roster: {e}")
 
 else:
-
+    # (El roster no existe, se genera de cero)
     print(f"No se encontró roster. Generando {NUM_ESTUDIANTES} estudiantes base nuevos...")
+    
+    # Usar la lista de promedios generada al inicio
+    lista_promedios_para_generar = lista_promedios_base.copy()
+    
     id_estudiante_actual = 1
     for grado, letras in CURSOS_GRADOS.items():
         for letra in letras:
@@ -119,7 +186,12 @@ else:
             est_por_curso = round(NUM_ESTUDIANTES / len(CURSOS_GRADOS.keys()) / len(letras))
             
             for _ in range(est_por_curso):
+                if not lista_promedios_para_generar: # Seguridad por si el redondeo falla
+                    print("Agotada lista de promedios, rellenando...")
+                    lista_promedios_para_generar.append(random.uniform(4.0, 5.0))
+                    
                 nombre = f"{fake.first_name()} {fake.last_name()} {fake.last_name()}"
+                
                 if "Básico" in grado:
                     edad = random.randint(RANGO_EDAD_BASICA[0], RANGO_EDAD_BASICA[1])
                     asignaturas = ASIGNATURAS_POR_NIVEL["Básico"]
@@ -137,14 +209,14 @@ else:
                     "asistencia": round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2),
                     "profesor": f"{fake.first_name()} {fake.last_name()}",
                     "Familia": f"Apoderado: {fake.name()}",
-                    # --- LÍNEA MODIFICADA (FIX 2) ---
-                    "Entrevistas": random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas."
+                    "Entrevistas": random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas.",
+                    # --- LÍNEA AÑADIDA ---
+                    "promedio_objetivo": round(lista_promedios_para_generar.pop(), 2)
                 }
                 estudiantes.append(estudiante_info)
                 id_estudiante_actual += 1
 
     print(f"Se generaron {len(estudiantes)} estudiantes nuevos.")
-    # Guardar el roster para futuras ejecuciones
     try:
         with open(ROSTER_FILE, 'w', encoding='utf-8') as f:
             json.dump(estudiantes, f, ensure_ascii=False, indent=4)
@@ -155,20 +227,29 @@ else:
 # --- GENERACIÓN DE DATOS (NOTAS Y OBSERVACIONES) ---
 print("Generando datos de asignaturas, notas y observaciones (nuevos)...")
 for est in estudiantes:
+    
+    # 1. Obtener el promedio objetivo del estudiante (del Roster)
+    promedio_obj = est["promedio_objetivo"]
+    
     for asignatura in est["asignaturas"]:
-        # Simular una leve mejoría o empeoramiento general
-        factor_aleatorio = random.uniform(-0.5, 0.5)
-        nota_base = 4.5 + factor_aleatorio # Centrado en 4.5
         
-        # Ajustar nota si es materia débil
+        # 2. Centrar la nota en el promedio objetivo
+        nota_base = promedio_obj
+        
+        # 3. Añadir variabilidad por asignatura (algunas le irá mejor, otras peor)
+        # Un estudiante 5.9 no tendrá 5.9 en todo.
+        variacion_asignatura = random.uniform(-0.8, 0.8) # Rango de variación
+        nota = nota_base + variacion_asignatura
+        
+        # 4. Ajustar nota si es materia débil (se mantiene la lógica)
         if est["materias_debiles"] and est["materias_debiles"] in asignatura:
-            nota_base -= 1.0
+            nota -= 1.0 # Penalización por materia débil
             
-        # Asegurar que la nota esté en el rango
-        nota = round(random.uniform(nota_base - 1.0, nota_base + 1.0), 1)
+        # 5. Asegurar que la nota esté en el rango (2.0 a 7.0)
+        nota = round(nota, 1)
         nota = max(RANGO_NOTAS[0], min(RANGO_NOTAS[1], nota)) # Clamp
         
-        # Generar observación
+        # 6. Generar observación (se mantiene la lógica)
         observacion = ""
         if random.random() < PROBABILIDAD_OBSERVACION:
             if nota < 4.0:
@@ -192,7 +273,9 @@ for est in estudiantes:
             "Asistencia": est["asistencia"],
             "profesor": est["profesor"],
             "Familia": est["Familia"],
-            "Entrevistas": est["Entrevistas"]
+            "Entrevistas": est["Entrevistas"],
+            # --- Dato Opcional (para depuración) ---
+            # "Promedio_Objetivo_Debug": est["promedio_objetivo"] 
         }
         datos_completos.append(registro)
 
