@@ -6,7 +6,7 @@
 
 {% block head_extra %}
 <style>
-    /* Estilos existentes (heatmap, history-item) no se modifican */
+    /* Estilos base */
     .heatmap-table { border-collapse: collapse; width: 100%; font-size: 0.8rem; table-layout: fixed; }
     .heatmap-table th, .heatmap-table td { border: 1px solid #e2e8f0; padding: 0.4rem 0.3rem; text-align: center; white-space: nowrap; }
     .heatmap-table th { background-color: #f8fafc; font-weight: 600; position: sticky; top: 0; z-index: 10; }
@@ -15,7 +15,57 @@
     .history-item-content { background-color: #f9fafb; padding: 1rem; border-radius: 0.375rem; border: 1px solid #e5e7eb; margin-bottom: 1rem; }
     .observation-list-item { padding-bottom: 0.5rem; margin-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; }
     .observation-list-item:last-child { border-bottom: none; }
-    .usage-details { transition: all 0.3s ease-in-out; } /* NUEVO */
+    .usage-details { transition: all 0.3s ease-in-out; }
+
+    /* Estilos para el botón de IA */
+    .ai-consultation-button {
+        background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+        color: white;
+        font-weight: 600;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        white-space: nowrap;
+    }
+
+    .ai-consultation-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+    }
+
+    .ai-consultation-button .icon {
+        font-size: 1.25rem;
+        transition: transform 0.3s ease;
+    }
+
+    .ai-consultation-button:hover .icon {
+        transform: scale(1.1);
+    }
+
+    /* Mejoras en el header del dashboard */
+    .dashboard-header {
+        display: grid;
+        grid-template-columns: 2fr auto 1fr;
+        align-items: center;
+        gap: 2rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .entity-title {
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    .entity-subtitle {
+        color: #6b7280;
+        margin-top: 0.25rem;
+        font-size: 1.125rem;
+    }
 </style>
 {% endblock %}
 
@@ -45,87 +95,212 @@
 
 {% block panel_center_content %}
 <div class="flex flex-col h-full">
-    <div class="grid grid-cols-3 items-center mb-6">
-        <div>
-            <h1 class="text-2xl md:text-3xl font-bold text-slate-800 whitespace-nowrap">
+    <div class="flex items-center justify-between mb-6 gap-4">
+        <div class="flex-grow">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
                 Análisis Detallado: <span class="text-indigo-600">{{ nombre_entidad }}</span>
             </h1>
-            <p class="text-lg font-normal text-slate-500">({{ tipo_entidad|capitalize }})</p>
+            <div class="flex items-center gap-4 mt-2">
+                <p class="text-lg text-slate-600">({{ tipo_entidad|capitalize }})</p>
+                <a href="#chat-detalle-section" class="ai-consultation-button group inline-flex items-center">
+                    <div class="icon-container flex items-center justify-center">
+                        <svg class="w-5 h-5 icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 3L20 7.5V16.5L12 21L4 16.5V7.5L12 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M12 12L12 21M12 12L20 7.5M12 12L4 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <span>Consulta con IA</span>
+                </a>
+            </div>
         </div>
 
-        <div class="flex justify-center">
-         <a href="#chat-detalle-section" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
-            <i class="fas fa-gem mr-2"></i> Consulta con IA
-        </a>   
-        </div>
-
-        <div class="flex justify-end">
-            <a href="javascript:window.print()" class="text-slate-500 hover:text-indigo-600 transition-colors" title="Imprimir/Guardar como PDF">
+        <div class="flex-shrink-0">
+            <a href="javascript:window.print()" 
+               class="text-slate-500 hover:text-indigo-600 transition-all duration-300 transform hover:scale-110" 
+               title="Imprimir/Guardar como PDF">
                 <i class="fas fa-print text-xl"></i>
             </a>
         </div>
     </div>
 
     {% if error_message %}
-        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
-            <p class="font-bold">Error</p>
-            <p>{{ error_message }}</p>
+        {# --- INICIO: MODIFICACIÓN Tarjeta de Error --- #}
+        {# Convertimos la alerta en una tarjeta 'bg-slate-50' que contiene la alerta 'bg-red-50' #}
+        <div class="bg-slate-50 p-6 rounded-lg shadow-md border border-slate-200 mb-8">
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+                <p class="font-bold">Error</p>
+                <p>{{ error_message }}</p>
+            </div>
         </div>
+        {# --- FIN: MODIFICACIÓN --- #}
     {% elif datos_dashboard %}
-        <div id="data-visualization-section" class="mb-8">
-            {% if tipo_entidad == 'alumno' and datos_dashboard.info_general %}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Promedio</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.Promedio }}</p></div>
-                    <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Curso</p><p class="text-xl font-bold text-purple-900">{{ datos_dashboard.info_general.Curso }}</p></div>
-                    <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Edad</p><p class="text-2xl font-bold text-green-900">{{ datos_dashboard.info_general.Edad }}</p></div>
-                    <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-orange-900">{{ datos_dashboard.info_general.AsignaturaMenorPromedio }}</p></div>
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {% if datos_dashboard.notas_asignaturas_original and datos_dashboard.notas_asignaturas_original.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Calificaciones Individuales</h3><canvas id="alumnoNotasOriginalChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                    {% if datos_dashboard.student_vs_course_level_chart_data and datos_dashboard.student_vs_course_level_chart_data.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Comparativa vs. Curso y Nivel</h3><canvas id="studentComparativeChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                </div>
-
-            {% elif tipo_entidad == 'curso' and datos_dashboard.info_general %}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Nº Alumnos</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.NumeroAlumnos }}</p></div>
-                    <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso }}</p></div>
-                    <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-green-900">{{ datos_dashboard.info_general.PeorAsignatura }}</p></div>
-                    {% if datos_dashboard.info_general.AlumnoPeorPromedioNombre and datos_dashboard.info_general.AlumnoPeorPromedioNombre != 'N/A' %}
-                        <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor }})</p></a>
-                    {% else %}
-                        <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }}</p></div>
-                    {% endif %}
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    {% if datos_dashboard.distribucion_promedios_curso and datos_dashboard.distribucion_promedios_curso.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Distribución de Promedios</h3><canvas id="cursoDistribucionChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                    {% if datos_dashboard.course_vs_level_chart_data and datos_dashboard.course_vs_level_chart_data.labels %}
-                    <div class="bg-white p-4 rounded-lg shadow border"><h3 class="text-center font-semibold text-slate-700 mb-2">Promedio del Curso vs. Nivel</h3><canvas id="courseVsLevelChart" style="max-height: 250px;"></canvas></div>
-                    {% endif %}
-                </div>
-                {% if datos_dashboard.heatmap_data %}
-                <div class="bg-white p-4 rounded-lg shadow border mb-6"><h3 class="text-center font-semibold text-slate-700 mb-3">Mapa de Calor de Calificaciones</h3><div class="overflow-x-auto custom-scrollbar"><table class="heatmap-table"><thead><tr><th class="student-name">Estudiante</th>{% for header in datos_dashboard.heatmap_data.subject_headers %}<th>{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in datos_dashboard.heatmap_data.student_performance_rows %}<tr><td class="student-name">{{ row.student_name }}</td>{% for grade in row.grades %}<td class="{{ grade.color_class }}">{{ grade.score_display }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+        <div id="data-visualization-section" class="mb-8 space-y-8">
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+                <h2 class="text-xl font-semibold text-slate-800 mb-6 text-center">Visualización de Datos</h2>
+                
+                {# Sección de Resumen de Métricas #}
+                <div class="mb-8">
+                    <h3 class="text-lg font-semibold text-slate-700 mb-6 text-center">Resumen de Métricas</h3>
+                {% if tipo_entidad == 'alumno' and datos_dashboard.info_general %}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {# Tarjetas de métricas con fondo blanco y sombras #}
+                        <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
+                            <p class="text-xs font-medium text-blue-600 uppercase mb-1">Promedio</p>
+                            <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Promedio }}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
+                            <p class="text-xs font-medium text-purple-600 uppercase mb-1">Curso</p>
+                            <p class="text-2xl font-bold text-slate-800">{{ datos_dashboard.info_general.Curso }}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
+                            <p class="text-xs font-medium text-green-600 uppercase mb-1">Edad</p>
+                            <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Edad }}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
+                            <p class="text-xs font-medium text-orange-600 uppercase mb-1">Peor Asignatura</p>
+                            <p class="text-lg font-bold text-slate-800 text-center">{{ datos_dashboard.info_general.AsignaturaMenorPromedio }}</p>
+                        </div>
+                    </div>
+                {% elif tipo_entidad == 'curso' and datos_dashboard.info_general %}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Nº Alumnos</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.NumeroAlumnos }}</p></div>
+                        <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso }}</p></div>
+                        <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-green-900">{{ datos_dashboard.info_general.PeorAsignatura }}</p></div>
+                        {% if datos_dashboard.info_general.AlumnoPeorPromedioNombre and datos_dashboard.info_general.AlumnoPeorPromedioNombre != 'N/A' %}
+                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor }})</p></a>
+                        {% else %}
+                            <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }}</p></div>
+                        {% endif %}
+                    </div>
                 {% endif %}
+            </div>
+            {# --- FIN: MODIFICACIÓN Tarjeta de KPIs --- #}
 
-            {% else %}
-                 <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4" role="alert">
-                    <p class="font-bold">Información no disponible</p>
-                    <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad }}</span>.</p>
+            {# Sección de Gráficos #}
+                <div class="mt-8">
+                {% if tipo_entidad == 'alumno' %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {% if datos_dashboard.notas_asignaturas_original and datos_dashboard.notas_asignaturas_original.labels %}
+                        <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
+                            <div class="p-2">
+                                <canvas id="alumnoNotasOriginalChart" style="height: 340px;"></canvas>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if datos_dashboard.student_vs_course_level_chart_data and datos_dashboard.student_vs_course_level_chart_data.labels %}
+                        <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
+                            <div class="p-2">
+                                <canvas id="studentComparativeChart" style="height: 340px;"></canvas>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                {% elif tipo_entidad == 'curso' %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        {% if datos_dashboard.distribucion_promedios_curso and datos_dashboard.distribucion_promedios_curso.labels %}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Distribución de Promedios</h3><canvas id="cursoDistribucionChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                        {% if datos_dashboard.course_vs_level_chart_data and datos_dashboard.course_vs_level_chart_data.labels %}
+                        <div class="bg-white p-4 rounded-lg shadow-sm border"><h3 class="text-center font-semibold text-slate-700 mb-2">Promedio del Curso vs. Nivel</h3><canvas id="courseVsLevelChart" style="max-height: 250px;"></canvas></div>
+                        {% endif %}
+                    </div>
+                    {% if datos_dashboard.heatmap_data %}
+                    {# El heatmap se mantiene en su propia sub-tarjeta 'bg-white' para legibilidad #}
+                    <div class="bg-white p-4 rounded-lg shadow-sm border mt-6"><h3 class="text-center font-semibold text-slate-700 mb-3">Mapa de Calor de Calificaciones</h3><div class="overflow-x-auto custom-scrollbar"><table class="heatmap-table"><thead><tr><th class="student-name">Estudiante</th>{% for header in datos_dashboard.heatmap_data.subject_headers %}<th>{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in datos_dashboard.heatmap_data.student_performance_rows %}<tr><td class="student-name">{{ row.student_name }}</td>{% for grade in row.grades %}<td class="{{ grade.color_class }}">{{ grade.score_display }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+                    {% endif %}
+                
+                {% else %}
+                    <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4" role="alert">
+                        <p class="font-bold">Información no disponible</p>
+                        <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad }}</span>.</p>
+                    </div>
+                {% endif %}
+            </div>
+             {# --- FIN: MODIFICACIÓN Tarjeta de Gráficos --- #}
+
+            {# --- SECCIÓN: Historial de Reportes 360 y Planes de Intervención --- #}
+            <div id="historial-seguimientos" class="mt-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {# Tarjeta: Historial de Reportes 360 #}
+                    <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-slate-800">
+                                <i class="fas fa-file-alt mr-2 text-purple-500"></i>
+                                Historial de Reportes 360
+                            </h3>
+                            <span class="text-sm text-slate-600">Total: {{ historial_reportes_360_con_observaciones|length }}</span>
+                        </div>
+                        {% if historial_reportes_360_con_observaciones and historial_reportes_360_con_observaciones|length > 0 %}
+                            {% for rep in historial_reportes_360_con_observaciones %}
+                                <div class="history-item-container">
+                                    <div class="text-xs text-slate-500 mb-2">
+                                        <i class="far fa-calendar-alt mr-1"></i>
+                                        {{ rep.timestamp_formateado or rep.timestamp }}
+                                    </div>
+                                    <div class="history-item-content prose prose-sm max-w-none">
+                                        {{ rep.reporte_html | safe }}
+                                    </div>
+                                    {% if rep.observaciones and rep.observaciones|length > 0 %}
+                                        <div class="mt-2 text-sm text-slate-700">
+                                            Observaciones ({{ rep.observaciones|length }})
+                                        </div>
+                                        <div class="space-y-2">
+                                            {% for obs in rep.observaciones %}
+                                                <div class="observation-list-item text-xs text-slate-600">
+                                                    <i class="far fa-comment-dots mr-1"></i>
+                                                    {{ obs.timestamp }} — {{ obs.observacion_html | safe }}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-slate-500 italic">Aún no hay reportes 360 históricos para esta entidad.</p>
+                        {% endif %}
+                    </div>
+
+                    {# Tarjeta: Historial de Planes de Intervención #}
+                    <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-slate-800">
+                                <i class="fas fa-clipboard-check mr-2 text-orange-500"></i>
+                                Historial de Planes de Intervención
+                            </h3>
+                            <span class="text-sm text-slate-600">Total: {{ historial_planes_intervencion|length }}</span>
+                        </div>
+                        {% if historial_planes_intervencion and historial_planes_intervencion|length > 0 %}
+                            {% for plan in historial_planes_intervencion %}
+                                <div class="history-item-container">
+                                    <div class="text-xs text-slate-500 mb-2">
+                                        <i class="far fa-calendar-alt mr-1"></i>
+                                        {{ plan.timestamp }}
+                                    </div>
+                                    <div class="history-item-content prose prose-sm max-w-none">
+                                        {{ plan.plan_html | safe }}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-slate-500 italic">Aún no hay planes de intervención históricos para esta entidad.</p>
+                        {% endif %}
+                    </div>
                 </div>
-            {% endif %}
+            </div>
+            {# --- FIN: SECCIÓN de Historial --- #}
         </div>
+
         {# --- SECCIÓN DE CHAT CON GEMINI (DETALLE) --- #}
-        <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-300">
+        {# --- INICIO: MODIFICACIÓN Tarjeta de Chat --- #}
+        {# Convertimos la sección de chat en una tarjeta 'bg-slate-50' #}
+        <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-200">
             <h2 class="text-xl font-semibold text-slate-800 mb-3">
                 <i class="fas fa-comments mr-2 text-teal-500"></i>Consultar sobre <span class="text-teal-600">{{ nombre_entidad }}</span>
             </h2>
-            <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
-                <div id="chat-history-detalle" class="h-64 overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-slate-50 custom-scrollbar space-y-4">
+            <div class="bg-slate-50 p-4 rounded-lg shadow-md border border-slate-200">
+                {# El historial de chat (bg-slate-50) se vuelve 'bg-white' o 'bg-slate-100' para contrastar #}
+                <div id="chat-history-detalle" class="h-64 overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-white custom-scrollbar space-y-4">
                     {% for message in chat_history_detalle %}
                         {% if message.user %}
                             <div class="user-message text-right mb-2"><p class="inline-block bg-indigo-500 text-white text-sm rounded-lg px-3 py-2 shadow"><strong>Tú:</strong> {{ message.user | replace('\n', '<br>') | safe }}</p></div>
@@ -142,6 +317,7 @@
                 </form>
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Tarjeta de Chat --- #}
     {% endif %}
 </div>
 {% endblock panel_center_content %}
@@ -158,7 +334,63 @@
             {% if tipo_entidad == 'alumno' and datos_dashboard.notas_asignaturas_original and datos_dashboard.notas_asignaturas_original.labels %}
                 try {
                     const alumnoNotasOriginalCtx = document.getElementById('alumnoNotasOriginalChart')?.getContext('2d');
-                    if (alumnoNotasOriginalCtx) { new Chart(alumnoNotasOriginalCtx, { type: 'bar', data: { labels: {{ datos_dashboard.notas_asignaturas_original.labels|tojson|safe }}, datasets: [{ label: 'Calificación Individual', data: {{ datos_dashboard.notas_asignaturas_original.scores|tojson|safe }}, backgroundColor: 'rgba(153, 102, 255, 0.6)', borderColor: 'rgba(153, 102, 255, 1)', borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, suggestedMax: 7 } }, plugins: { legend: { display: false } }, animation: { duration: 500, easing: 'easeInOutQuart' } } }); }
+                    if (alumnoNotasOriginalCtx) { 
+                        new Chart(alumnoNotasOriginalCtx, { 
+                            type: 'bar', 
+                            data: { 
+                                labels: {{ datos_dashboard.notas_asignaturas_original.labels|tojson|safe }}, 
+                                datasets: [{ 
+                                    label: 'Calificación Individual', 
+                                    data: {{ datos_dashboard.notas_asignaturas_original.scores|tojson|safe }}, 
+                                    backgroundColor: 'rgba(99, 102, 241, 0.8)', // Indigo más visible
+                                    borderColor: 'rgb(79, 70, 229)', // Indigo más oscuro
+                                    borderWidth: 2,
+                                    borderRadius: 4,
+                                    maxBarThickness: 40
+                                }] 
+                            }, 
+                            options: { 
+                                responsive: true, 
+                                maintainAspectRatio: false, 
+                                scales: { 
+                                    y: { 
+                                        beginAtZero: true, 
+                                        suggestedMax: 7,
+                                        grid: {
+                                            color: 'rgba(226, 232, 240, 0.8)', // Slate-200 con transparencia
+                                            drawBorder: false
+                                        },
+                                        ticks: {
+                                            font: {
+                                                family: "'Inter', sans-serif",
+                                                size: 11
+                                            }
+                                        }
+                                    },
+                                    x: {
+                                        grid: {
+                                            display: false
+                                        },
+                                        ticks: {
+                                            font: {
+                                                family: "'Inter', sans-serif",
+                                                size: 11
+                                            }
+                                        }
+                                    }
+                                }, 
+                                plugins: { 
+                                    legend: { 
+                                        display: false 
+                                    } 
+                                }, 
+                                animation: { 
+                                    duration: 500, 
+                                    easing: 'easeInOutQuart' 
+                                } 
+                            } 
+                        }); 
+                    }
                 } catch (e) { console.error("Error inicializando gráfico de notas originales alumno:", e); }
                 {% if datos_dashboard.student_vs_course_level_chart_data and datos_dashboard.student_vs_course_level_chart_data.labels and datos_dashboard.student_vs_course_level_chart_data.datasets %}
                 try {

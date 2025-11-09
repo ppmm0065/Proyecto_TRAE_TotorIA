@@ -1,103 +1,297 @@
-# generador_datos.py
 import pandas as pd
 import random
-import csv
 from faker import Faker
+import datetime
+import json
+import os
 
-# --- PARÁMETROS DE GENERACIÓN ---
+# --- CONFIGURACIÓN ---
 NUM_ESTUDIANTES = 800
-ASIGNATURAS = ['Matemáticas', 'Inglés', 'Lenguaje', 'Ciencias', 'Historia', 'Educación Física']
-CURSOS = ['1° Básico A', '1° Básico B', '2° Básico A', '2° Básico B', '3° Básico A', '3° Básico B', '4° Básico A', '4° Básico B', '5° Básico A', '5° Básico B', '6° Básico A', '6° Básico B', '7° Básico A', '7° Básico B', '8° Básico A', '8° Básico B', '1° Medio A', '1° Medio B', '2° Medio A', '2° Medio B', '3° Medio A', '3° Medio B', '4° Medio A', '4° Medio B'
-]
-TIPOS_NOTA = ['Prueba', 'Tarea', 'Ensayo', 'Control', 'Laboratorio', 'Exposición']
-
+CURSOS_GRADOS = {
+    "1° Básico": ["A", "B"], "2° Básico": ["A", "B"], "3° Básico": ["A", "B"],
+    "4° Básico": ["A", "B"], "5° Básico": ["A", "B"], "6° Básico": ["A", "B"],
+    "7° Básico": ["A", "B"], "8° Básico": ["A", "B"],
+    "1° Medio": ["A", "B"], "2° Medio": ["A", "B"], "3° Medio": ["A", "B"], "4° Medio": ["A", "B"]
+}
+ASIGNATURAS_POR_NIVEL = {
+    "Básico": ["Lenguaje", "Matemáticas", "Ciencias Naturales", "Historia", "Inglés", "Música", "Artes Visuales", "Educación Física"],
+    "Medio": ["Lenguaje", "Matemáticas", "Física", "Química", "Biología", "Historia", "Inglés", "Filosofía", "Artes Visuales", "Educación Física"]
+}
+RANGO_NOTAS = (2.0, 7.0)
+PROBABILIDAD_OBSERVACION = 0.4
 OBSERVACIONES_POSITIVAS = [
-    "Excelente participación en clases.", "Muestra liderazgo y colabora con sus compañeros.",
-    "Ha mejorado notablemente su rendimiento.", "Muy responsable y puntual con sus entregas.",
-    "Creativo y con gran potencial."
+    "Excelente participación en clases.", "Demuestra gran interés por la asignatura.",
+    "Colabora activamente con sus compañeros.", "Muy responsable y puntual con sus entregas.",
+    "Creativo y con gran potencial.", "Ha mejorado notablemente su rendimiento.",
+    "Liderazgo positivo dentro del grupo."
 ]
 OBSERVACIONES_NEGATIVAS = [
-    "Molesta a sus companeros constantemente.", "A menudo no trae sus materiales de trabajo.",
-    "Se distrae con facilidad.", "Presenta dificultades para seguir instrucciones.", "Agrede a un compañero", "Falta de respeto con el profesor",
-    "Copia en la prueba de un compañero."
-]
-OBSERVACIONES_COMPLEJAS = [
-    "Muestra gran interés, pero a veces conversa en clases.", "Buen rendimiento académico, aunque es muy tímido.",
-    "Ha mejorado su conducta, pero aún le cuesta concentrarse.", "Falta de estudio. Se cita al apoderado.",
-    "Presenta un progreso inconsistente; alterna entre notas altas y bajas."
+    "Falta de estudio y preparación para las evaluaciones.", "Dificultad para concentrarse en clases.",
+    "Progreso inconsistente, alterna entre notas altas y bajas.",
+    "Molesta a sus compañeros e interrumpe la clase.", "Falta de respeto hacia el profesor.",
+    "Se distrae con facilidad.", "Tímido, le cuesta participar oralmente.",
+    "Registra agresiones físicas a compañeros.", "Copia en la prueba."
 ]
 
-def generar_datos():
-    """
-    Genera un archivo CSV con datos ficticios de estudiantes en formato "largo".
-    """
-    print("Iniciando la generación de datos ficticios...")
-    fake = Faker('es_ES')
-    
-    lista_estudiantes = []
-    nombres_usados = set()
-    while len(lista_estudiantes) < NUM_ESTUDIANTES:
-        nombre = fake.name()
-        if nombre not in nombres_usados:
-            nombres_usados.add(nombre)
-            edad = random.randint(14, 18)
-            curso = random.choice(CURSOS)
-            asistencia = f"{random.randint(80, 100)}%"
-            lista_estudiantes.append({
-                'Nombre': nombre,
-                'curso': curso,
-                'edad': edad,
-                'Asistencia': asistencia
-            })
+# Lista de ejemplos para la columna Entrevistas
+ENTREVISTAS_EJEMPLOS = [
+    "Apoderado: Se observa con los apoderados una mejora en la intención de estudios.",
+    "Apoderado: Padres preocupados porque se duerme muy tarde jugando en el computador.",
+    "Apoderado: Padres manifiestan que están viviendo situación de separación que ha afectado a sus hijos.",
+    "Los apoderados informan que están en un proceso de separación y que eso ha afectado a sus hijos.",
+    "Los apoderados agradecen la actividad pastoral de la semana pasada.",
+    "El colegio hace saber a los apoderados la preocupación por el mal comportamiento de su hijo.",
+    "Los apoderados solicitan al colegio que su hijo sea incorporado a la selección de futbol.",
+    "Se conversa con apoderado sobre la importancia de reforzar hábitos de estudio en casa.",
+    "Apoderado justifica inasistencias por viaje familiar, presenta justificativo médico.",
+    "Se felicita al apoderado por el notable avance del estudiante en conducta y responsabilidad.",
+    "Apoderado informa que el estudiante presenta dificultades de concentración en casa y solicita estrategias de apoyo.",
+    "Se cita a apoderado por reiteradas faltas de respeto a inspectores. Apoderado se compromete a conversar con su hijo.",
+    "Apoderado informa diagnóstico reciente de TDAH del estudiante. Se acuerda derivar a equipo PIE para evaluación de apoyos.",
+    "Se destaca al apoderado el excelente desempeño del estudiante en el debate de Historia, mostrando gran liderazgo.",
+    "Apoderado consulta sobre el proceso de postulación a becas para el próximo año. Se entrega información y fechas relevantes.",
+    "Conversación sobre la integración social del estudiante. Apoderados mencionan que es tímido; se acuerda fomentar participación en clases.",
+    "Se informa al apoderado sobre la falta recurrente de entrega de tareas. Apoderado se compromete a revisar la agenda escolar diariamente.",
+    "Apoderados expresan preocupación por posible situación de acoso escolar. Convivencia Escolar iniciará protocolo de investigación.",
+    "Apoderado solicita reunión con UTP para revisar la cobertura curricular y los métodos de evaluación de la asignatura de Inglés.",
+    "Reunión de seguimiento con apoderado. Se revisan los compromisos de la entrevista anterior y se constatan avances positivos en la conducta."
+]
+PROBABILIDAD_ENTREVISTA = 0.7 # 70% de los estudiantes tendrán un registro de entrevista
 
-    random.shuffle(lista_estudiantes)
-    num_complejas = int(NUM_ESTUDIANTES * 0.30)
-    
-    for i, estudiante in enumerate(lista_estudiantes):
-        if i < num_complejas:
-            estudiante['Observacion de conducta'] = random.choice(OBSERVACIONES_COMPLEJAS)
-        else:
-            if random.random() > 0.4:
-                 estudiante['Observacion de conducta'] = random.choice(OBSERVACIONES_POSITIVAS)
-            else:
-                 estudiante['Observacion de conducta'] = random.choice(OBSERVACIONES_NEGATIVAS)
+MATERIAS_DEBILES_EJEMPLOS = ["Matemáticas", "Lenguaje", "Física", "Inglés"]
+RANGO_ASISTENCIA = (0.85, 1.0)
+RANGO_EDAD_BASICA = (6, 14)
+RANGO_EDAD_MEDIA = (14, 18)
 
-    registros_notas = []
-    for estudiante in lista_estudiantes:
-        num_asignaturas_estudiante = random.randint(3, len(ASIGNATURAS))
-        asignaturas_estudiante = random.sample(ASIGNATURAS, num_asignaturas_estudiante)
+ARCHIVO_SALIDA = "datos_completos_800_estudiantes.csv"
+ROSTER_FILE = "roster_estudiantes.json"
+
+def _generar_lista_promedios_objetivo():
+    """
+    Genera una lista de promedios objetivo forzando la distribución
+    solicitada por el usuario (media ~5.9, percentiles específicos).
+    """
+    print("Generando distribución de promedios objetivo...")
+    
+    lista_promedios = []
+    
+    # 1. Calcular el número de estudiantes en cada tramo
+    num_bajos = int(NUM_ESTUDIANTES * 0.10) # 10%
+    num_top = int(NUM_ESTUDIANTES * 0.01)   # 1%
+    num_altos = int(NUM_ESTUDIANTES * 0.25) - num_top # 24% (25% total - 1% top)
+    num_medios = NUM_ESTUDIANTES - num_bajos - num_top - num_altos # 65%
+    
+    # 2. Generar promedios para cada tramo
+    
+    # Tramo Bajo (10%): <= 4.0
+    for _ in range(num_bajos):
+        lista_promedios.append(random.uniform(3.0, 4.0))
         
-        for asignatura in asignaturas_estudiante:
-            num_notas = random.randint(2, 4)
-            for i in range(num_notas):
-                nota = round(random.uniform(3.0, 7.0), 1)
-                detalle_nota = f"{random.choice(TIPOS_NOTA)} {i + 1}"
+    # Tramo Top (1%): 6.9-7.0
+    for _ in range(num_top):
+        lista_promedios.append(random.uniform(6.9, 7.0))
+        
+    # Tramo Alto (24%): 6.5-6.89
+    for _ in range(num_altos):
+        lista_promedios.append(random.uniform(6.5, 6.89))
+        
+    # Tramo Medio (65%): 4.1 - 6.4 (Gaussiano)
+    # Para que la media global sea 5.9, la media de este grupo debe ser ~5.95
+    mu_medios = 5.95
+    sigma_medios = 0.4 # Desviación para cubrir el rango (4.1 a 6.4)
+    
+    for _ in range(num_medios):
+        prom = random.normalvariate(mu_medios, sigma_medios)
+        # Forzar a los límites 4.1 y 6.4
+        prom = max(4.1, min(6.4, prom))
+        lista_promedios.append(prom)
+
+    # 3. Barajar la lista y retornarla
+    print(f"Distribución generada. Media: {sum(lista_promedios) / len(lista_promedios):.2f}")
+    random.shuffle(lista_promedios)
+    return lista_promedios
+
+# --- INICIALIZACIÓN ---
+fake = Faker('es_ES') # Nombres en español
+
+# --- LÍNEA AÑADIDA ---
+# Forzamos una nueva semilla aleatoria basada en la hora actual
+random.seed(datetime.datetime.now().timestamp())
+print("Nueva semilla aleatoria inicializada.")
+
+datos_completos = []
+
+# 1. Generar la lista de promedios base ANTES de cargar o crear el roster
+lista_promedios_base = _generar_lista_promedios_objetivo()
+lista_promedios_base_copia = lista_promedios_base.copy() # Copia para el bloque IF
+
+estudiantes = []
+if os.path.exists(ROSTER_FILE):
+    print(f"Cargando roster de estudiantes existente desde '{ROSTER_FILE}'...")
+    with open(ROSTER_FILE, 'r', encoding='utf-8') as f:
+        estudiantes = json.load(f)
+    print(f"Se cargaron {len(estudiantes)} estudiantes.")
+    
+    # Flags para saber si hay que re-guardar
+    hubo_actualizacion = False
+
+    # Si el número de estudiantes en el roster no coincide, advertir.
+    if len(estudiantes) != len(lista_promedios_base_copia):
+        print(f"ADVERTENCIA: Roster tiene {len(estudiantes)} est. vs {len(lista_promedios_base_copia)} promedios generados.")
+        # Ajustar lista de promedios por si acaso
+        while len(lista_promedios_base_copia) < len(estudiantes):
+            lista_promedios_base_copia.append(random.uniform(4.0, 5.0)) # Relleno
+        lista_promedios_base_copia = lista_promedios_base_copia[:len(estudiantes)]
+        
+    print("Actualizando roster existente con nueva lógica (Entrevistas y Promedio Objetivo)...")
+    
+    # Mezclar la lista de promedios antes de asignar a estudiantes existentes
+    random.shuffle(lista_promedios_base_copia)
+    
+    for i, est in enumerate(estudiantes):
+        # Actualizar datos que pueden variar
+        est["asistencia"] = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
+        est["profesor"] = f"{fake.first_name()} {fake.last_name()}"
+        
+        # FIX Entrevistas (de la vez anterior)
+        if "Entrevistas" not in est or est["Entrevistas"] == "Sin entrevistas registradas.":
+            est["Entrevistas"] = random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas."
+            hubo_actualizacion = True
+            
+        # NUEVA LÓGICA: Añadir Promedio Objetivo si no existe
+        if "promedio_objetivo" not in est:
+            est["promedio_objetivo"] = round(lista_promedios_base_copia[i], 2)
+            hubo_actualizacion = True
+
+    if hubo_actualizacion:
+        print("Roster actualizado. Guardando cambios en 'roster_estudiantes.json'...")
+        try:
+            with open(ROSTER_FILE, 'w', encoding='utf-8') as f:
+                json.dump(estudiantes, f, ensure_ascii=False, indent=4)
+            print("Roster guardado con éxito.")
+        except Exception as e:
+            print(f"Error al re-guardar el roster: {e}")
+
+else:
+    # (El roster no existe, se genera de cero)
+    print(f"No se encontró roster. Generando {NUM_ESTUDIANTES} estudiantes base nuevos...")
+    
+    # Usar la lista de promedios generada al inicio
+    lista_promedios_para_generar = lista_promedios_base.copy()
+    
+    id_estudiante_actual = 1
+    for grado, letras in CURSOS_GRADOS.items():
+        for letra in letras:
+            curso_completo = f"{grado} {letra}"
+            est_por_curso = round(NUM_ESTUDIANTES / len(CURSOS_GRADOS.keys()) / len(letras))
+            
+            for _ in range(est_por_curso):
+                if not lista_promedios_para_generar: # Seguridad por si el redondeo falla
+                    print("Agotada lista de promedios, rellenando...")
+                    lista_promedios_para_generar.append(random.uniform(4.0, 5.0))
+                    
+                nombre = f"{fake.first_name()} {fake.last_name()} {fake.last_name()}"
                 
-                registros_notas.append({
-                    'Nombre': estudiante['Nombre'],
-                    'curso': estudiante['curso'],
-                    'edad': estudiante['edad'],
-                    'Asignatura': asignatura,
-                    'Detalle_Nota': detalle_nota,
-                    'Nota': str(nota).replace('.',','), # Usar coma como decimal para consistencia
-                    'Asistencia': estudiante['Asistencia'],
-                    'Observacion de conducta': estudiante['Observacion de conducta']
-                })
+                if "Básico" in grado:
+                    edad = random.randint(RANGO_EDAD_BASICA[0], RANGO_EDAD_BASICA[1])
+                    asignaturas = ASIGNATURAS_POR_NIVEL["Básico"]
+                else:
+                    edad = random.randint(RANGO_EDAD_MEDIA[0], RANGO_EDAD_MEDIA[1])
+                    asignaturas = ASIGNATURAS_POR_NIVEL["Medio"]
+                
+                estudiante_info = {
+                    "id_estudiante": id_estudiante_actual,
+                    "nombre": nombre,
+                    "curso": curso_completo,
+                    "edad": edad,
+                    "asignaturas": asignaturas,
+                    "materias_debiles": random.choice(MATERIAS_DEBILES_EJEMPLOS) if random.random() < 0.3 else "", # 30% tiene una materia débil
+                    "asistencia": round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2),
+                    "profesor": f"{fake.first_name()} {fake.last_name()}",
+                    "Familia": f"Apoderado: {fake.name()}",
+                    "Entrevistas": random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas.",
+                    # --- LÍNEA AÑADIDA ---
+                    "promedio_objetivo": round(lista_promedios_para_generar.pop(), 2)
+                }
+                estudiantes.append(estudiante_info)
+                id_estudiante_actual += 1
 
-    df = pd.DataFrame(registros_notas)
-    columnas_ordenadas = [
-        'Nombre', 'curso', 'edad', 'Asignatura', 'Detalle_Nota', 
-        'Nota', 'Asistencia', 'Observacion de conducta'
-    ]
-    df = df[columnas_ordenadas]
+    print(f"Se generaron {len(estudiantes)} estudiantes nuevos.")
+    try:
+        with open(ROSTER_FILE, 'w', encoding='utf-8') as f:
+            json.dump(estudiantes, f, ensure_ascii=False, indent=4)
+        print(f"Roster de estudiantes guardado en '{ROSTER_FILE}'.")
+    except Exception as e:
+        print(f"Error al guardar el roster: {e}")
 
-    nombre_archivo = 'datos_completos_estudiantes.csv'
+# --- GENERACIÓN DE DATOS (NOTAS Y OBSERVACIONES) ---
+print("Generando datos de asignaturas, notas y observaciones (nuevos)...")
+for est in estudiantes:
     
-    # --- LÍNEA CORREGIDA ---
-    # Forzamos el separador de coma (sep=',') y la codificación utf-8-sig para máxima compatibilidad.
-    df.to_csv(nombre_archivo, index=False, sep=',', encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
+    # 1. Obtener el promedio objetivo del estudiante (del Roster)
+    promedio_obj = est["promedio_objetivo"]
     
-    print(f"\n¡Éxito! Se ha generado el archivo '{nombre_archivo}' con formato CSV estándar (separado por comas y codificación UTF-8).")
+    for asignatura in est["asignaturas"]:
+        
+        # 2. Centrar la nota en el promedio objetivo
+        nota_base = promedio_obj
+        
+        # 3. Añadir variabilidad por asignatura (algunas le irá mejor, otras peor)
+        # Un estudiante 5.9 no tendrá 5.9 en todo.
+        variacion_asignatura = random.uniform(-0.8, 0.8) # Rango de variación
+        nota = nota_base + variacion_asignatura
+        
+        # 4. Ajustar nota si es materia débil (se mantiene la lógica)
+        if est["materias_debiles"] and est["materias_debiles"] in asignatura:
+            nota -= 1.0 # Penalización por materia débil
+            
+        # 5. Asegurar que la nota esté en el rango (2.0 a 7.0)
+        nota = round(nota, 1)
+        nota = max(RANGO_NOTAS[0], min(RANGO_NOTAS[1], nota)) # Clamp
+        
+        # 6. Generar observación (se mantiene la lógica)
+        observacion = ""
+        if random.random() < PROBABILIDAD_OBSERVACION:
+            if nota < 4.0:
+                observacion = random.choice(OBSERVACIONES_NEGATIVAS)
+            elif nota > 6.0:
+                observacion = random.choice(OBSERVACIONES_POSITIVAS)
+            elif random.random() < 0.5:
+                 observacion = random.choice(OBSERVACIONES_NEGATIVAS)
+            else:
+                 observacion = random.choice(OBSERVACIONES_POSITIVAS)
+        
+        registro = {
+            "ID Estudiante": est["id_estudiante"],
+            "Nombre": est["nombre"],
+            "curso": est["curso"],
+            "edad": est["edad"],
+            "Asignatura": asignatura,
+            "Nota": nota,
+            "Observacion de conducta": observacion,
+            "materias_debiles": est["materias_debiles"],
+            "Asistencia": est["asistencia"],
+            "profesor": est["profesor"],
+            "Familia": est["Familia"],
+            "Entrevistas": est["Entrevistas"],
+            # --- Dato Opcional (para depuración) ---
+            # "Promedio_Objetivo_Debug": est["promedio_objetivo"] 
+        }
+        datos_completos.append(registro)
 
-if __name__ == "__main__":
-    generar_datos()
+# --- CREACIÓN Y GUARDADO DEL DATAFRAME ---
+print(f"Creando DataFrame y guardando en '{ARCHIVO_SALIDA}'...")
+df = pd.DataFrame(datos_completos)
+
+# Reordenar columnas para que las principales queden al inicio
+columnas_ordenadas = [
+    "ID Estudiante", "Nombre", "curso", "edad", "Asignatura", "Nota", 
+    "Observacion de conducta", "materias_debiles", "Asistencia", 
+    "profesor", "Familia", "Entrevistas"
+]
+df = df[columnas_ordenadas]
+
+# Guardar en CSV
+df.to_csv(ARCHIVO_SALIDA, index=False, sep=';', encoding='utf-8-sig')
+
+print("¡Proceso completado! Archivo CSV generado exitosamente.")

@@ -42,11 +42,6 @@
   .insight-title { display: flex; align-items: center; gap: .5rem; background: #eef2ff; border-left: 4px solid #6366f1; padding: .5rem .75rem; border-radius: 8px; font-weight: 700; color: #1f2937; margin: .6rem 0; }
   .insight-badge { font-size: .75rem; background: #6366f1; color: #fff; border-radius: 9999px; padding: .1rem .5rem; }
   .intro-title { font-weight: 600; color: #1f2937; margin: .4rem 0; }
-  /* Bloque de insight (header + desarrollo) */
-  .insight-block { background: #eef2ff; border-left: 6px solid #6366f1; border-radius: 12px; padding: .55rem .8rem; margin: .75rem 0; }
-  .insight-header { display: flex; align-items: center; gap: .6rem; font-weight: 700; color: #111827; }
-  .insight-header .insight-badge { font-size: .8rem; background: #6366f1; color: #fff; border-radius: 9999px; padding: .15rem .6rem; display: inline-flex; align-items: center; gap: .35rem; }
-  .insight-content { margin-top: .5rem; }
 </style>
 {% endblock %}
 
@@ -320,6 +315,7 @@
             root.querySelectorAll('h1, h2, h3, h4, p').forEach(el => {
                 const text = (el.textContent || '').trim();
                 if (isIntroTitle(text)) {
+                    // Mantener como texto normal (o estilo suave) sin icono ni barra
                     const title = text.replace(/:\s*$/, '');
                     const wrapper = doc.createElement('div');
                     wrapper.className = 'intro-title';
@@ -327,42 +323,12 @@
                     el.replaceWith(wrapper);
                 } else if (isSectionTitle(text)) {
                     const title = text.replace(/:\s*$/, '');
-                    const marker = doc.createElement('div');
-                    marker.className = 'insight-title';
-                    marker.innerHTML = `<span class="insight-badge">💡 Insight</span><span>${title}</span>`;
-                    el.replaceWith(marker);
+                    const wrapper = doc.createElement('div');
+                    wrapper.className = 'insight-title';
+                    wrapper.innerHTML = `<span class="insight-badge">💡 Insight</span><span>${title}</span>`;
+                    el.replaceWith(wrapper);
                 }
             });
-
-            // Agrupar cada título de insight con su desarrollo (hasta el siguiente insight)
-            let node = root.firstElementChild;
-            while (node) {
-                if (node.classList && node.classList.contains('insight-title')) {
-                    const block = doc.createElement('div');
-                    block.className = 'insight-block';
-                    const header = doc.createElement('div');
-                    header.className = 'insight-header';
-                    header.innerHTML = node.innerHTML; // badge + título
-                    const content = doc.createElement('div');
-                    content.className = 'insight-content';
-
-                    // Mover hermanos siguientes hasta encontrar el próximo título de insight
-                    let cursor = node.nextElementSibling;
-                    while (cursor && !(cursor.classList && cursor.classList.contains('insight-title'))) {
-                        const next = cursor.nextElementSibling;
-                        content.appendChild(cursor);
-                        cursor = next;
-                    }
-
-                    block.appendChild(header);
-                    if (content.children.length > 0) block.appendChild(content);
-                    const replaceTarget = node;
-                    node = block; // para continuar el bucle correctamente
-                    root.insertBefore(block, replaceTarget);
-                    root.removeChild(replaceTarget);
-                }
-                node = node.nextElementSibling;
-            }
 
             // Envolver en tarjeta con cabecera
             const card = doc.createElement('div');

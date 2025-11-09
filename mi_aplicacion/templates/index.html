@@ -14,20 +14,28 @@
 
 {% block panel_center_content %}
     {% if session.file_summary %}
-        <div class="grid grid-cols-3 items-center mb-8">
-            <div>
+        <div class="flex items-center justify-between mb-8 gap-4">
+            <div class="flex-grow">
                 <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Dashboard Académico Escolar</h1>
-                <p class="text-sm text-slate-500">Sistema de gestión y seguimiento de estudiantes</p>
+                <div class="flex items-center gap-4 mt-2">
+                    <p class="text-lg text-slate-600">Sistema de gestión y seguimiento de estudiantes</p>
+                    <a href="{{ url_for('main.chat_avanzado') }}" class="ai-consultation-button group inline-flex items-center">
+                        <div class="icon-container flex items-center justify-center">
+                            <svg class="w-5 h-5 icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 3L20 7.5V16.5L12 21L4 16.5V7.5L12 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M12 12L12 21M12 12L20 7.5M12 12L4 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span>Consulta con IA</span>
+                    </a>
+                </div>
             </div>
-            <div class="flex justify-center">
-                <a href="{{ url_for('main.chat_avanzado') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
-                    <i class="fas fa-gem mr-2"></i> Consulta con IA
-                </a>
-            </div>
-            <div></div>
         </div>
+
+        {# --- INICIO: MODIFICACIÓN KPIs --- #}
+        {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' y mantenido 'shadow-sm' #}
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-blue-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-blue-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Total Estudiantes</h3>
@@ -38,7 +46,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-green-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-green-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes Activos</h3>
@@ -49,7 +57,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-purple-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-purple-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Promedio General</h3>
@@ -60,7 +68,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-cyan-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-cyan-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Asistencia Promedio</h3>
@@ -71,7 +79,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-red-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-red-500">
                  <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes en Riesgo</h3>
@@ -82,7 +90,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-orange-500">
+            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-orange-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Niveles Activos</h3>
@@ -94,14 +102,17 @@
                 </div>
             </div>
         </div>
-        {# El resto del contenido del panel (Alertas, Tablas, Gráficos) se mantiene igual #}
-        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+        {# --- FIN: MODIFICACIÓN KPIs --- #}
+
+        {# --- INICIO: MODIFICACIÓN Alertas --- #}
+        {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' #}
+        <div class="my-8 p-6 bg-slate-50 rounded-lg shadow-md border border-slate-200">
             <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
                 <i class="fas fa-triangle-exclamation text-red-500 mr-2"></i> Alertas Clave del Establecimiento
             </h2>
             <div class="space-y-6">
                 {% if session.file_summary.advanced_alerts and session.file_summary.advanced_alerts.niveles_bajo_rendimiento %}
-                    <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div class="p-4 bg-slate-50 border border-red-200 rounded-lg">
                         <h3 class="font-semibold text-red-700 mb-2">
                             <i class="fas fa-chart-line-down mr-1"></i> Niveles con Bajo Rendimiento Significativo
                         </h3>
@@ -115,7 +126,7 @@
                     </div>
                 {% endif %}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4"> 
-                     <div class="bg-red-50 rounded-lg shadow border border-red-200 hover:bg-red-100 transition-colors duration-200">
+                     <div class="bg-slate-50 rounded-lg shadow border border-red-200 hover:bg-red-100 transition-colors duration-200">
                         {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
@@ -138,7 +149,7 @@
                             </div>
                         {% endif %}
                     </div>
-                    <div class="bg-orange-50 rounded-lg shadow border border-orange-200 hover:bg-orange-100 transition-colors duration-200">
+                    <div class="bg-slate-50 rounded-lg shadow border border-orange-200 hover:bg-orange-100 transition-colors duration-200">
                         {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
@@ -168,11 +179,11 @@
                     </h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <button id="btn-alerta-promedio" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 flex items-center justify-center text-sm">
+                            <button id="btn-alerta-promedio" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 flex items-center justify-center text-sm">
                                 <i class="fas fa-chart-line-down mr-2"></i> Alumnos con Menor Promedio por Nivel (Detalle)
                                 <i id="icon-promedio-alerta" class="fas fa-chevron-down ml-auto transition-transform"></i>
                             </button>
-                            <div id="lista-alerta-promedio" class="hidden mt-2 p-4 bg-orange-50 border border-orange-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
+                            <div id="lista-alerta-promedio" class="hidden mt-2 p-4 bg-red-50 border border-red-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
                                 <p class="text-slate-500 italic">Cargando datos...</p>
                             </div>
                         </div>
@@ -189,15 +200,19 @@
                 </div>
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Alertas --- #}
+
 
         {% if session.file_summary.level_kpis %}
-        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+        {# --- INICIO: MODIFICACIÓN Tabla Nivel --- #}
+        {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' #}
+        <div class="my-8 p-6 bg-slate-50 rounded-lg shadow-md border border-slate-200">
             <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
                 <i class="fas fa-layer-group text-indigo-500 mr-2"></i> Resumen por Nivel Educativo
             </h2>
             <div class="overflow-x-auto custom-scrollbar">
                 <table class="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead class="bg-slate-50">
+                    <thead class="bg-slate-100"> {# Fondo de a a 'slate-100' para contrastar con la tarjeta 'slate-50' #}
                         <tr>
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Nivel</th>
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Total Alumnos</th>
@@ -209,7 +224,7 @@
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Mayor Prom.</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-slate-200">
+                    <tbody class="bg-white divide-y divide-slate-200"> {# Dejamos el fondo de la tabla 'bg-white' para legibilidad #}
                         {% for nivel, data in session.file_summary.level_kpis.items()|sort %}
                         <tr>
                             <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ nivel }}</td>
@@ -234,22 +249,25 @@
                 </table>
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Tabla Nivel --- #}
         {% endif %}
 
         {% if session.file_summary.asistencia_data_available and session.file_summary.course_attendance %}
-        <div class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
+        {# --- INICIO: MODIFICACIÓN Tabla Asistencia --- #}
+        {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' #}
+        <div class="my-8 p-6 bg-slate-50 rounded-lg shadow-md border border-slate-200">
             <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
                 <i class="fas fa-user-check text-green-500 mr-2"></i> Asistencia Promedio por Curso
             </h2>
             <div class="overflow-x-auto custom-scrollbar max-h-72">
                 <table class="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead class="bg-slate-50">
+                    <thead class="bg-slate-100"> {# Fondo de a a 'slate-100' #}
                         <tr>
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso</th>
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Promedio</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-slate-200">
+                    <tbody class="bg-white divide-y divide-slate-200"> {# Fondo de tabla 'bg-white' #}
                         {% for curso, asistencia in session.file_summary.course_attendance.items()|sort %}
                         <tr>
                             <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ curso }}</td>
@@ -264,10 +282,13 @@
                 </table>
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Tabla Asistencia --- #}
         {% endif %}
         
+        {# --- INICIO: MODIFICACIÓN Gráficos --- #}
+        {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' #}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <div class="bg-white p-6 rounded-xl shadow-sm">
+            <div class="bg-slate-50 p-6 rounded-lg shadow-sm border border-slate-200">
                 <h3 class="text-lg font-semibold text-slate-800 mb-4">Distribución de Rendimiento Académico</h3>
                 {% if session.file_summary and session.file_summary.average_distribution_data and session.file_summary.average_distribution_data.labels %}
                     <div><canvas id="rendimientoChart"></canvas></div>
@@ -276,7 +297,7 @@
                     <p class="text-center text-slate-500 italic py-10">No hay datos de rendimiento para mostrar.</p>
                 {% endif %}
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm">
+            <div class="bg-slate-50 p-6 rounded-lg shadow-sm border border-slate-200">
                 <h3 class="text-lg font-semibold text-slate-800 mb-4">Distribución de Asistencia</h3>
                  {% if session.file_summary and session.file_summary.attendance_distribution_data and session.file_summary.attendance_distribution_data.labels %}
                     <div><canvas id="asistenciaChart"></canvas></div>
@@ -285,8 +306,11 @@
                 {% endif %}
             </div>
         </div>
+        {# --- FIN: MODIFICACIÓN Gráficos --- #}
+
         <div class="mb-8">
             <h3 class="text-md font-semibold text-slate-700 mb-2">Columnas Detectadas:</h3>
+            {# Esta tarjeta ya era 'bg-slate-50', así que se mantiene perfecta #}
             <p class="text-sm text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 {{ session.file_summary.column_names | join(', ') }}
             </p>
@@ -301,12 +325,13 @@
             <img src="{{ url_for('static', filename='images/logo1.png') }}" alt="Logo TutorIA360" class="h-24 w-auto mb-6 opacity-80" onerror="this.style.display='none'">
             <h1 class="text-3xl font-bold text-slate-800 mb-4">Bienvenido a TutorIA360 Dashboard</h1>
             <p class="text-lg text-slate-600 mb-8 max-w-xl">Comienza por cargar un archivo CSV.</p>
+            {# Esta tarjeta ya era 'bg-slate-50', así que se mantiene perfecta #}
             <div class="bg-slate-50 p-6 rounded-lg border border-slate-200 max-w-md">
                 <h2 class="text-xl font-semibold text-slate-700 mb-3">¿Cómo Empezar?</h2>
                 <ol class="list-decimal list-inside text-left space-y-2 text-slate-600">
                     <li>Usa el panel izquierdo para cargar tu archivo CSV.</li>
                     <li>Este panel mostrará un resumen y opciones de análisis.</li>
-                    <li>Usa el panel derecho para búsquedas específicas.</li>
+<li>Usa el panel derecho para búsquedas específicas.</li>
                 </ol>
             </div>
         </div>

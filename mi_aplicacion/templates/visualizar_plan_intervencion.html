@@ -115,7 +115,6 @@
     </ul>
 {% endblock %}
 
-
 {% block panel_center_content %}
 <div class="flex flex-col h-full">
     <div class="flex justify-between items-start mb-6">
@@ -123,7 +122,8 @@
             <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
                 Plan de Intervención: <span class="text-indigo-600">{{ nombre_entidad }}</span>
             </h1>
-            <p class="text-lg font-normal text-slate-500">({{ tipo_entidad|capitalize }}) - Emitido el: {{ fecha_emision_plan.split(' ')[0] }}</p>
+            {# MODIFICADO: Se quitó .split(' ')[0] para mostrar la hora #}
+            <p class="text-lg font-normal text-slate-500">({{ tipo_entidad|capitalize }}) - Emitido el: {{ fecha_emision_plan }}</p>
         </div>
     </div>
 

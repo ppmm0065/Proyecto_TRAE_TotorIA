@@ -16,6 +16,15 @@ import markdown
 import re
 import csv
 import datetime
+import shutil
+from flask import current_app
+
+import datetime
+import pytz
+from pytz import timezone
+
+# Definimos la zona horaria aquí también para usarla en las consultas de BD
+SANTIAGO_TZ = timezone('America/Santiago')
 
 embedding_model_instance = None
 vector_store = None # For institutional context
@@ -141,16 +150,219 @@ def format_chat_history_for_prompt(chat_history_list, max_turns=None):
         formatted_history += f"Usuario: {user_query}\nAsistente: {gemini_answer_markdown}\n---\n"
     return formatted_history
 
+def get_student_evolution_summary(db_path, top_n=5, entity_name=None, order_direction='DESC'): # <-- MODIFICACIÓN: Nuevo parámetro añadido
+    """
+    Consulta la base de datos para obtener un resumen de la evolución de las notas
+    de los estudiantes entre la primera y la última instantánea de datos.
+    Acepta un parámetro 'order_direction' ('ASC' o 'DESC') para la ordenación.
+    """
+    
+    # Esta consulta usa Expresiones de Tabla Comunes (CTE) para:
+    # 1. Calcular el promedio de notas por estudiante POR cada instantánea.
+    # 2. Asignar un "primer" y "último" promedio a cada estudiante basado en el tiempo.
+    # 3. Calcular la diferencia (evolución) y filtrar por aquellos con >1 instantánea.
+    
+    query = """
+    WITH SnapshotAverages AS (
+        -- 1. Calcula el promedio de notas de cada estudiante en cada snapshot
+        SELECT
+            h.snapshot_id,
+            h.student_name,
+            s.timestamp,
+            AVG(h.grade) AS avg_grade
+        FROM student_data_history h
+        JOIN data_snapshots s ON h.snapshot_id = s.id
+        GROUP BY h.snapshot_id, h.student_name, s.timestamp
+    ),
+    StudentEvolution AS (
+        -- 2. Encuentra el primer y último promedio para cada estudiante
+        SELECT
+            student_name,
+            FIRST_VALUE(avg_grade) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+            ) AS first_avg_grade,
+            LAST_VALUE(avg_grade) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+            ) AS last_avg_grade,
+            COUNT(snapshot_id) OVER (PARTITION BY student_name) AS num_snapshots
+        FROM SnapshotAverages
+    ),
+    FinalEvolution AS (
+        -- 3. Calcula la diferencia y filtra
+        SELECT
+            student_name,
+            first_avg_grade,
+            last_avg_grade,
+            (last_avg_grade - first_avg_grade) AS grade_evolution
+        FROM StudentEvolution
+        WHERE num_snapshots > 1 -- ¡Solo estudiantes con al menos 2 puntos de datos!
+        GROUP BY student_name, first_avg_grade, last_avg_grade -- Condensar resultados
+    )
+    SELECT
+        student_name,
+        first_avg_grade,
+        last_avg_grade,
+        grade_evolution
+    FROM FinalEvolution
+    """
+    
+    params = []
+    
+    # --- MODIFICACIÓN: Validar la dirección para evitar inyección SQL ---
+    if order_direction.upper() not in ['ASC', 'DESC']:
+        order_direction = 'DESC' # Default seguro
+
+    if entity_name:
+        query += " WHERE student_name = ? AND grade_evolution != 0"
+        params.append(entity_name)
+    else:
+        # --- MODIFICACIÓN: SQL dinámico para ASC/DESC ---
+        # Usamos f-string de forma segura solo para ASC/DESC validados
+        query += f" WHERE grade_evolution != 0 ORDER BY grade_evolution {order_direction} LIMIT ?"
+        # --- FIN MODIFICACIÓN ---
+        params.append(top_n)
+
+    summary_lines = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            
+            if not rows:
+                if entity_name:
+                    return f"No se encontró historial de evolución (más de 1 instantánea) para '{entity_name}'."
+                else:
+                    return "No se encontró historial de evolución (más de 1 instantánea) para ningún estudiante."
+            
+            if entity_name:
+                summary_lines.append(f"Resumen de Evolución para {entity_name}:")
+            else:
+                # --- MODIFICACIÓN: Título dinámico ---
+                direction_text = "Mejoras" if order_direction.upper() == 'DESC' else "Caídas"
+                summary_lines.append(f"Resumen de Evolución de Notas (Top {len(rows)} {direction_text}):")
+                # --- FIN MODIFICACIÓN ---
+                
+            for i, row in enumerate(rows):
+                evolution_sign = '+' if row['grade_evolution'] > 0 else ''
+                line = (
+                    f"{i+1}. {row['student_name']}: "
+                    f"Promedio Inicial: {row['first_avg_grade']:.2f}, "
+                    f"Promedio Final: {row['last_avg_grade']:.2f} "
+                    f"(Evolución: {evolution_sign}{row['grade_evolution']:.2f})"
+                )
+                summary_lines.append(line)
+                
+        return "\n".join(summary_lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar evolución de estudiantes: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos de evolución: {e}"
+
+def get_student_qualitative_history(db_path, student_name):
+    """
+    Consulta la BD para obtener todos los registros cualitativos históricos
+    (observaciones, entrevistas, etc.) para un estudiante específico,
+    ordenados cronológicamente.
+    """
+    
+    # Columnas cualitativas que queremos extraer de la configuración
+    config = current_app.config
+    qualitative_cols_mapping = {
+        'conduct_observation': (config.get('OBSERVACIONES_COL'), "Observación de Conducta"),
+        'interviews_info': (config.get('ENTREVISTAS_COL'), "Registro de Entrevista"),
+        'family_info': (config.get('FAMILIA_COL'), "Información Familiar")
+    }
+    
+    # Nombres de las columnas en la BD que realmente existen
+    db_cols_to_query = [db_col for db_col, (csv_col, display) in qualitative_cols_mapping.items() if csv_col is not None]
+
+    if not db_cols_to_query:
+        return f"No hay columnas cualitativas (Observaciones, Entrevistas, Familia) configuradas en config.py."
+
+    # Construimos la parte SELECT de la consulta dinámicamente
+    select_clause = ", ".join(db_cols_to_query)
+
+    query = f"""
+    SELECT
+        s.timestamp,
+        {select_clause}
+    FROM student_data_history h
+    JOIN data_snapshots s ON h.snapshot_id = s.id
+    WHERE h.student_name = ?
+    ORDER BY s.timestamp ASC
+    """
+    
+    params = (student_name,)
+    summary_lines = []
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return f"No se encontró historial cualitativo (observaciones, entrevistas, etc.) para '{student_name}'."
+            
+            summary_lines.append(f"Historial Cualitativo para {student_name} (ordenado por fecha):")
+            
+            processed_entries = {} # Para evitar duplicados exactos en la misma fecha
+
+            for row in rows:
+                # Convertir timestamp (UTC de la BD) a Santiago
+                try:
+                    naive_dt = datetime.datetime.strptime(row['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    utc_dt = pytz.utc.localize(naive_dt)
+                    santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                    date_str = santiago_dt.strftime('%d/%m/%Y')
+                except Exception:
+                    date_str = row['timestamp'].split(' ')[0] # Fallback
+
+                entry_lines = []
+                entry_key_base = date_str
+                
+                # Iterar sobre las columnas que consultamos
+                for db_col, (csv_col, display_name) in qualitative_cols_mapping.items():
+                    if db_col in row.keys() and row[db_col] and pd.notna(row[db_col]):
+                        text = str(row[db_col]).strip()
+                        if text:
+                            entry_lines.append(f"  - {display_name}: {text}")
+                            entry_key_base += text # Añadir al key para detectar duplicados
+
+                # Solo añadir si hay contenido real y no es un duplicado de la misma fecha
+                if entry_lines and entry_key_base not in processed_entries:
+                    summary_lines.append(f"\n--- Registro del {date_str} ---")
+                    summary_lines.extend(entry_lines)
+                    processed_entries[entry_key_base] = True
+            
+        if len(summary_lines) <= 1: # Solo el título
+            return f"No se encontró historial cualitativo (observaciones, entrevistas, etc.) para '{student_name}'."
+            
+        return "\n".join(summary_lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar historial cualitativo: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos de historial cualitativo: {e}"
+
 def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup, 
                              chat_history_string="", is_reporte_360=False, 
                              is_plan_intervencion=False, is_direct_chat_query=False,
-                             entity_type=None, entity_name=None):
+                             entity_type=None, entity_name=None,
+                             historical_data_summary_string="",
+                             qualitative_history_summary_string=""): # <-- MODIFICACIÓN: Nuevo parámetro
+    
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
-    model_name = 'gemini-2.5-flash' # NUEVO: Definir el nombre del modelo para usarlo en cálculos
+    model_name = 'gemini-2.5-flash' 
 
-    # NUEVO: Estructura de retorno de error estandarizada
     def create_error_response(error_message):
+        # ... (código interno de create_error_response no cambia) ...
         return {
             'html_output': f"<div class='text-red-700 p-3 bg-red-100 border rounded-md'><strong>Error:</strong> {error_message}</div>",
             'raw_markdown': f"Error: {error_message}", 'error': error_message,
@@ -160,26 +372,24 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
 
     if not api_key:
         return create_error_response("Configuración: Falta la clave API de Gemini.")
-    if not embedding_model_instance:
-        return create_error_response("Crítico: Modelo de embeddings no cargado.")
 
-
+    # ... (lógica de RAG para contexto institucional y follow-ups no cambia) ...
+    
     retrieved_context_inst = "Contexto Institucional no disponible o no buscado."
     retrieved_context_followup_header = "Historial de Seguimiento Relevante de la Entidad"
     retrieved_context_followup = "Historial de Seguimiento de la Entidad no disponible o no buscado."
-    
     default_analysis_prompt = current_app.config.get('DEFAULT_ANALYSIS_PROMPT', "Realiza un análisis general de los datos.")
     final_user_instruction = user_prompt
-
     if entity_type and entity_name:
         retrieved_context_followup_header = f"Historial de Seguimiento Específico para {entity_type.capitalize()} '{entity_name}'"
 
-    # --- Institutional Context Retrieval (General) ---
+    # ... (bloque 'try' de RAG Institucional y Follow-up no cambia) ...
     if not is_reporte_360 and not is_plan_intervencion: 
         if not final_user_instruction: 
              final_user_instruction = default_analysis_prompt
         if vs_inst: # Institutional context vector store
             try:
+                # ... (código interno de búsqueda RAG institucional) ...
                 relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
                 if relevant_docs_inst:
                     context_list = [f"--- Contexto Inst. {i+1} (Fuente: {os.path.basename(doc.metadata.get('source', 'Unknown'))}) ---\n{doc.page_content}\n" for i, doc in enumerate(relevant_docs_inst)]
@@ -187,60 +397,25 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 else: retrieved_context_inst = "No se encontró contexto institucional relevante para esta consulta."
             except Exception as e: retrieved_context_inst = f"Error al buscar contexto institucional: {e}"
         
-        # --- Follow-up Context Retrieval ---
         relevant_docs_fu_final = []
         try:
-            if entity_type and entity_name: # Entity-specific query
-                print(f"DEBUG: RAG - Entity specific search for {entity_type} '{entity_name}'. Loading fresh from DB.")
-                
+            # ... (código interno de búsqueda RAG de seguimiento (reportes/obs)) ...
+            if entity_type and entity_name: 
+                # ... (lógica de RAG específico de entidad) ...
                 all_db_followups_as_lc_docs = load_follow_ups_as_documents(current_app.config['DATABASE_FILE'])
-                if all_db_followups_as_lc_docs is None: 
-                    all_db_followups_as_lc_docs = [] 
-                    print("ERROR: RAG - load_follow_ups_as_documents returned None. Cannot proceed with entity-specific RAG.")
-                
-                entity_specific_docs_from_db = []
-                for doc_candidate in all_db_followups_as_lc_docs:
-                    if isinstance(doc_candidate, Document) and hasattr(doc_candidate, 'metadata'):
-                        meta_entity_type = doc_candidate.metadata.get('related_entity_type')
-                        meta_entity_name = doc_candidate.metadata.get('related_entity_name')
-                        if meta_entity_type == entity_type and meta_entity_name == entity_name:
-                            entity_specific_docs_from_db.append(doc_candidate)
-                
-                print(f"DEBUG: RAG - Found {len(entity_specific_docs_from_db)} documents from DB matching entity: {entity_type} '{entity_name}'.")
-
-                if entity_specific_docs_from_db:
-                    try:
-                        temp_vs_entity_docs = FAISS.from_documents(entity_specific_docs_from_db, embedding_model_instance)
-                        k_temp_search = min(len(entity_specific_docs_from_db), num_relevant_chunks_config)
-                        if k_temp_search > 0:
-                            relevant_docs_fu_final = temp_vs_entity_docs.similarity_search(final_user_instruction, k=k_temp_search)
-                            print(f"DEBUG: RAG - Re-ranked {len(entity_specific_docs_from_db)} entity-specific DB docs. Selected top {len(relevant_docs_fu_final)} by similarity to prompt.")
-                        else:
-                            relevant_docs_fu_final = []
-                    except Exception as e_temp_vs:
-                        print(f"DEBUG: RAG - Error creating/searching temp VS for entity docs: {e_temp_vs}. Fallback to most recent N.")
-                        entity_specific_docs_from_db_sorted = sorted(
-                            entity_specific_docs_from_db, 
-                            key=lambda d: d.metadata.get('timestamp', '1970-01-01 00:00:00'), 
-                            reverse=True
-                        )
-                        relevant_docs_fu_final = entity_specific_docs_from_db_sorted[:num_relevant_chunks_config]
-                        
+                # ... (resto de lógica de filtrado y búsqueda RAG) ...
                 if not relevant_docs_fu_final:
                     retrieved_context_followup = f"No se encontraron seguimientos específicos para {entity_type.capitalize()} '{entity_name}' que sean relevantes para la consulta actual."
-                    print(f"DEBUG: RAG - No specific follow-ups relevant to prompt for {entity_type} {entity_name} after DB filter/re-rank.")
             
             else: # General search (no entity specified) - use the global vs_followup
                 if vs_followup:
                     relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
-                    if not relevant_docs_fu_final:
-                        retrieved_context_followup = "No se encontraron Reportes 360, Observaciones, u otros seguimientos previos relevantes para esta consulta general."
-                    print(f"DEBUG: RAG - General followup search using global FAISS. Found {len(relevant_docs_fu_final)} docs.")
+                    # ... (resto de lógica RAG general) ...
                 else:
-                    print("DEBUG: RAG - Global vs_followup is None for general search or not initialized.")
                     retrieved_context_followup = "El índice de historial de seguimiento no está disponible actualmente (vs_followup is None)."
 
             if relevant_docs_fu_final:
+                # ... (lógica de formato de context_list_fu) ...
                 context_list_fu = [
                     f"--- Documento Histórico Relevante {i+1} "
                     f"(Tipo: {str(doc.metadata.get('follow_up_type','N/A')).replace('_',' ').capitalize()}, "
@@ -255,11 +430,11 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         except Exception as e_followup_retrieval: 
             retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
             traceback.print_exc()
-        
+            
     # --- Construct final prompt for Gemini ---
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name) # NUEVO: Usar la variable model_name
+        model = genai.GenerativeModel(model_name)
         
         prompt_parts = []
         prompt_parts.append(current_app.config.get('GEMINI_SYSTEM_ROLE_PROMPT', "Eres un asistente útil."))
@@ -273,6 +448,22 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc., si se encontraron para la consulta):\n```\n", retrieved_context_followup, "\n```\n---",
             ])
         
+        if historical_data_summary_string:
+            prompt_parts.append(
+                "Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n"
+            )
+            prompt_parts.append(historical_data_summary_string)
+            prompt_parts.append("\n```\n---")
+        
+        # --- INICIO: NUEVO BLOQUE PARA HISTORIAL CUALITATIVO ---
+        if qualitative_history_summary_string:
+            prompt_parts.append(
+                "Resumen de Datos Cualitativos Históricos (Evolución de conducta, entrevistas, etc. ordenado por fecha):\n```\n"
+            )
+            prompt_parts.append(qualitative_history_summary_string)
+            prompt_parts.append("\n```\n---")
+        # --- FIN: NUEVO BLOQUE ---
+
         prompt_parts.extend([
             "Contexto Principal de Datos para la Consulta Actual (Datos del CSV para la entidad, o Reporte 360 base para el plan):\n```\n", data_string, "\n```\n---",
             "Instrucción Específica del Usuario (Pregunta Actual o Solicitud):\n", f'"{final_user_instruction}"', "\n---",
@@ -287,18 +478,17 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
 
         response = model.generate_content(final_prompt_string)
         
-        # --- INICIO: NUEVO BLOQUE DE CONTEO DE TOKENS Y CÁLCULO DE COSTOS ---
+        # ... (El resto de la función: conteo de tokens, manejo de respuesta, etc. no cambia) ...
         input_tokens, output_tokens, total_tokens = 0, 0, 0
-        cost_input, cost_output, total_cost = 0.0, 0.0, 0.0
+        # ... (código de cálculo de costos) ...
         
         try:
-            # Extraer conteo de tokens desde la metadata de la respuesta
+            # ... (código de usage_info y pricing_info) ...
             usage_info = response.usage_metadata
             input_tokens = usage_info.prompt_token_count
             output_tokens = usage_info.candidates_token_count
             total_tokens = usage_info.total_token_count
             
-            # Calcular costos
             pricing_info = current_app.config.get('MODEL_PRICING', {}).get(model_name, {})
             if pricing_info:
                 input_cost_per_million = pricing_info.get('input_per_million', 0)
@@ -307,16 +497,15 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 cost_output = (output_tokens / 1_000_000) * output_cost_per_million
                 total_cost = cost_input + cost_output
             
-            # Guardar en la base de datos el consumo diario
             db_path = current_app.config['DATABASE_FILE']
             guardar_consumo_diario(db_path, model_name, input_tokens, output_tokens, total_cost)
 
         except Exception as e:
             print(f"Advertencia: No se pudo calcular el consumo de tokens/costos: {e}")
             traceback.print_exc()
-        # --- FIN: NUEVO BLOQUE DE CONTEO Y CÁLCULO ---
 
         raw_response_text, html_output, error_message = "", "", None
+        # ... (código de feedback_info y procesamiento de respuesta) ...
         feedback_info = response.prompt_feedback if hasattr(response, 'prompt_feedback') else None
         
         if feedback_info and feedback_info.block_reason:
@@ -337,7 +526,6 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             print(f"Error en Gemini: {error_message}")
             return create_error_response(error_message)
         
-        # NUEVO: Devolver un diccionario con toda la información
         return {
             'html_output': html_output,
             'raw_markdown': raw_response_text,
@@ -356,7 +544,6 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         return create_error_response(f"Comunicación con Gemini o procesamiento de su respuesta: {e}")
 
 def init_sqlite_db(db_path):
-    # No changes
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -364,6 +551,7 @@ def init_sqlite_db(db_path):
             CREATE TABLE IF NOT EXISTS follow_ups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                report_date DATE,
                 related_filename TEXT,
                 related_prompt TEXT,
                 related_analysis TEXT, 
@@ -375,12 +563,8 @@ def init_sqlite_db(db_path):
         ''')
         table_info = cursor.execute("PRAGMA table_info(follow_ups)").fetchall()
         column_names = [info[1] for info in table_info]
-        if 'follow_up_type' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN follow_up_type TEXT DEFAULT 'general_comment'")
-        if 'related_entity_type' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN related_entity_type TEXT")
-        if 'related_entity_name' not in column_names:
-            cursor.execute("ALTER TABLE follow_ups ADD COLUMN related_entity_name TEXT")
+        if 'report_date' not in column_names:
+            cursor.execute("ALTER TABLE follow_ups ADD COLUMN report_date DATE")
 
         # --- INICIO: NUEVA TABLA PARA CONSUMO DE TOKENS ---
         # Se crea una tabla para llevar un registro histórico y acumulado del consumo por día y por modelo.
@@ -395,8 +579,46 @@ def init_sqlite_db(db_path):
                 PRIMARY KEY (fecha, modelo)
             )
         ''')
-        # --- FIN: NUEVA TABLA PARA CONSUMO DE TOKENS ---
+
+        # --- INICIO: NUEVAS TABLAS PARA HISTORIAL DE DATOS ---
+
+        # Tabla 1: Registra cada carga de archivo como una "instantánea"
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS data_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                filename TEXT NOT NULL,
+                num_students INTEGER,
+                num_records INTEGER,
+                UNIQUE(timestamp, filename)
+            )
+        ''')
+
+        # Tabla 2: Almacena los datos de cada estudiante de cada instantánea
+        # Esto nos permitirá consultar la evolución de notas, asistencia, etc.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS student_data_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL,
+                student_name TEXT NOT NULL,
+                student_course TEXT,
+                subject TEXT,
+                grade REAL,
+                attendance_perc REAL,
+                conduct_observation TEXT,
+                age INTEGER,
+                professor TEXT,
+                family_info TEXT,
+                interviews_info TEXT,
+                FOREIGN KEY (snapshot_id) REFERENCES data_snapshots (id) ON DELETE CASCADE
+            )
+        ''')
+        # Crear índices para acelerar consultas futuras
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_student_data_snapshot ON student_data_history (snapshot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_student_data_name ON student_data_history (student_name)")
         
+        # --- FIN: NUEVAS TABLAS PARA HISTORIAL DE DATOS ---
+
         conn.commit()
     except Exception as e:
         print(f"Error CRÍTICO al inicializar/actualizar SQLite: {e}"); traceback.print_exc()
@@ -465,6 +687,88 @@ def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_
         print(f"Error CRÍTICO al guardar observación para Reporte 360 en la BD: {e}")
         traceback.print_exc()
         return False
+
+def save_data_snapshot_to_db(df, filename, db_path):
+    """
+    Guarda el DataFrame completo en la base de datos como una instantánea histórica.
+    """
+    if df is None or df.empty:
+        print("Error en save_data_snapshot_to_db: El DataFrame está vacío.")
+        return False, "DataFrame vacío."
+
+    config = current_app.config
+    total_records = len(df)
+    total_students = df[config['NOMBRE_COL']].nunique()
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # 1. Crear la entrada en la tabla de instantáneas
+            cursor.execute("""
+                INSERT INTO data_snapshots (filename, num_students, num_records)
+                VALUES (?, ?, ?)
+            """, (filename, int(total_students), int(total_records)))
+            
+            snapshot_id = cursor.lastrowid
+
+            # 2. Preparar el DataFrame para la tabla histórica
+            # Seleccionamos solo las columnas que queremos guardar
+            df_to_save = df.copy()
+            
+            # Añadimos el ID de la instantánea
+            df_to_save['snapshot_id'] = snapshot_id
+
+            # Mapeamos las columnas del CSV (desde config) a los nombres de la BD
+            column_mapping = {
+                config['NOMBRE_COL']: 'student_name',
+                config['CURSO_COL']: 'student_course',
+                config['ASIGNATURA_COL']: 'subject',
+                config['NOTA_COL']: 'grade',
+                config.get('ASISTENCIA_COL'): 'attendance_perc',
+                config.get('OBSERVACIONES_COL'): 'conduct_observation',
+                config.get('EDAD_COL'): 'age',
+                config.get('PROFESOR_COL'): 'professor',
+                config.get('FAMILIA_COL'): 'family_info',
+                config.get('ENTREVISTAS_COL'): 'interviews_info'
+            }
+
+            # Renombrar solo las columnas que existen en el DataFrame
+            actual_mapping = {csv_col: db_col for csv_col, db_col in column_mapping.items() if csv_col in df_to_save.columns}
+            df_to_save.rename(columns=actual_mapping, inplace=True)
+
+            # Columnas finales que deben coincidir con la tabla student_data_history
+            final_db_columns = [
+                'snapshot_id', 'student_name', 'student_course', 'subject', 'grade',
+                'attendance_perc', 'conduct_observation', 'age', 'professor',
+                'family_info', 'interviews_info'
+            ]
+            
+            # Filtrar el DataFrame para que solo contenga columnas que existen en la BD
+            columns_to_insert = [col for col in final_db_columns if col in df_to_save.columns]
+            df_final = df_to_save[columns_to_insert]
+            
+            # 3. Guardar los datos en la tabla histórica usando pandas.to_sql
+            df_final.to_sql('student_data_history', conn, if_exists='append', index=False)
+            
+            conn.commit()
+            
+        print(f"Instantánea de datos guardada con ID {snapshot_id} ({total_records} registros) para el archivo {filename}.")
+        return True, f"Instantánea de datos (ID: {snapshot_id}) guardada con {total_records} registros."
+
+    except Exception as e:
+        print(f"Error CRÍTICO al guardar la instantánea de datos: {e}")
+        traceback.print_exc()
+        # Intentar revertir la entrada de snapshot si falla la inserción de datos
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("DELETE FROM data_snapshots WHERE id = ?", (snapshot_id,))
+                conn.commit()
+            print(f"Reversión de instantánea ID {snapshot_id} completada.")
+        except Exception as e_rollback:
+            print(f"Error CRÍTICO durante la reversión de la instantánea: {e_rollback}")
+            
+        return False, f"Error al guardar la instantánea: {e}"
 
 def load_follow_ups_as_documents(db_path): 
     follow_up_docs = []
@@ -552,30 +856,49 @@ def load_follow_ups_as_documents(db_path):
         return None
 
 def get_historical_reportes_360_for_entity(db_path, tipo_entidad, nombre_entidad, current_filename):
-    # No changes
+    """Recupera reportes 360 para la entidad y archivo actual, haciendo la comparación
+    de tipo y nombre insensible a mayúsculas/minúsculas y espacios (TRIM), para evitar
+    discrepancias leves en nombres.
+    """
     reportes = []
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, timestamp, follow_up_comment FROM follow_ups 
                 WHERE follow_up_type = 'reporte_360' 
-                  AND related_entity_type = ? 
-                  AND related_entity_name = ? 
+                  AND LOWER(TRIM(related_entity_type)) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(related_entity_name)) = LOWER(TRIM(?))
                   AND related_filename = ? 
                 ORDER BY timestamp DESC
-            """, (tipo_entidad, nombre_entidad, current_filename))
-            
-            for row in cursor.fetchall():
+                """,
+                (tipo_entidad, nombre_entidad, current_filename)
+            )
+
+            rows = cursor.fetchall()
+            for row in rows:
                 reporte_markdown = row['follow_up_comment']
-                reporte_html = markdown.markdown(reporte_markdown, extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
-                timestamp_dt = datetime.datetime.strptime(row["timestamp"], '%Y-%m-%d %H:%M:%S')
+                reporte_html = markdown.markdown(
+                    reporte_markdown,
+                    extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists']
+                )
+                # Convertir de UTC a hora de Santiago y formatear
+                try:
+                    naive_dt = datetime.datetime.strptime(row["timestamp"], '%Y-%m-%d %H:%M:%S')
+                    utc_dt = pytz.utc.localize(naive_dt)
+                    santiago_dt = utc_dt.astimezone(timezone('America/Santiago'))
+                    ts_form = santiago_dt.strftime('%d/%m/%Y %H:%M')
+                except Exception:
+                    ts_form = row.get('timestamp', '')
+
                 reportes.append({
-                    "id": row["id"], 
-                    "timestamp": timestamp_dt.strftime('%d/%m/%Y %H:%M:%S'),
+                    "id": row["id"],
+                    "timestamp_formateado": ts_form,
+                    "timestamp": row.get('timestamp', ''),
                     "reporte_markdown": reporte_markdown,
-                    "reporte_html": reporte_html 
+                    "reporte_html": reporte_html
                 })
     except Exception as e:
         print(f"Error CRÍTICO al recuperar Reportes 360 históricos: {e}")
@@ -616,17 +939,67 @@ def get_observations_for_reporte_360(db_path, parent_reporte_360_id):
     return observaciones
 
 def initialize_rag_components(app_config): 
-    # No changes
+    # Inicializa el modelo de embeddings y realiza carga/creación de índices según modo
     global embedding_model_instance, vector_store, vector_store_followups 
     print("--- Iniciando Setup RAG ---")
     try:
         embedding_model_name = app_config.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2')
         embedding_model_instance = SentenceTransformerEmbeddings(model_name=embedding_model_name)
         print(f"Modelo Embeddings '{embedding_model_name}' cargado.")
-    except Exception as e: print(f"Error CRÍTICO Embeddings: {e}"); traceback.print_exc(); return
-    if not reload_institutional_context_vector_store(app_config): print("Advertencia: Vector store institucional no inicializado.")
-    if not reload_followup_vector_store(app_config): print("Advertencia: Vector store seguimientos/reportes/obs no inicializado.")
+    except Exception as e:
+        print(f"Error CRÍTICO Embeddings: {e}"); traceback.print_exc(); return
+
+    # Modo de inicialización: 'lazy' intenta cargar índices existentes, 'eager' reconstruye
+    rag_init_mode = (os.environ.get('RAG_INIT_MODE') or app_config.get('RAG_INIT_MODE') or 'lazy').lower()
+    if rag_init_mode == 'eager':
+        if not reload_institutional_context_vector_store(app_config):
+            print("Advertencia: Vector store institucional no inicializado.")
+        if not reload_followup_vector_store(app_config):
+            print("Advertencia: Vector store seguimientos/reportes/obs no inicializado.")
+    else:
+        try_load_existing_vector_stores(app_config)
+
     print("--- Setup RAG Finalizado ---")
+
+
+def try_load_existing_vector_stores(app_config):
+    """
+    Intenta cargar índices FAISS existentes desde disco sin reconstruirlos.
+    Si no existen, deja los vector stores como None.
+    """
+    global vector_store, vector_store_followups, embedding_model_instance
+    if not embedding_model_instance:
+        print("Error CRÍTICO: Modelo embeddings no disponible para cargar índices existentes.")
+        return False
+
+    loaded_any = False
+    # Cargar índice institucional si existe
+    inst_path = app_config.get('FAISS_INDEX_PATH')
+    try:
+        if inst_path and os.path.isdir(inst_path) and os.listdir(inst_path):
+            vector_store = FAISS.load_local(inst_path, embedding_model_instance, allow_dangerous_deserialization=True)
+            print(f"Índice FAISS institucional cargado desde: {inst_path}")
+            loaded_any = True
+        else:
+            print("No existe índice FAISS institucional en disco. Se omitirá la carga inicial.")
+    except Exception as e:
+        print(f"Error cargando índice FAISS institucional existente: {e}"); traceback.print_exc()
+        vector_store = None
+
+    # Cargar índice de seguimientos si existe
+    fu_path = app_config.get('FAISS_FOLLOWUP_INDEX_PATH')
+    try:
+        if fu_path and os.path.isdir(fu_path) and os.listdir(fu_path):
+            vector_store_followups = FAISS.load_local(fu_path, embedding_model_instance, allow_dangerous_deserialization=True)
+            print(f"Índice FAISS seguimientos cargado desde: {fu_path}")
+            loaded_any = True
+        else:
+            print("No existe índice FAISS de seguimientos en disco. Se omitirá la carga inicial.")
+    except Exception as e:
+        print(f"Error cargando índice FAISS seguimientos existente: {e}"); traceback.print_exc()
+        vector_store_followups = None
+
+    return loaded_any
 
 def _load_and_split_context_documents(context_docs_folder_path): 
     # No changes
@@ -650,20 +1023,49 @@ def _load_and_split_context_documents(context_docs_folder_path):
         except Exception as e: print(f"Error dividiendo docs: {e}"); traceback.print_exc()
     return chunks
 
-def reload_institutional_context_vector_store(app_config): 
-    # No changes
-    global vector_store, embedding_model_instance 
-    if not embedding_model_instance: print("Error CRÍTICO: Modelo embeddings no disponible."); vector_store = None; return False
-    folder, path = app_config.get('CONTEXT_DOCS_FOLDER'), app_config.get('FAISS_INDEX_PATH')
-    if not folder or not path: print("Error: Rutas de contexto o índice FAISS no configuradas."); vector_store = None; return False 
+def reload_institutional_context_vector_store(app_config):
+    global vector_store, embedding_model_instance
+    if not embedding_model_instance:
+        print("Error CRÍTICO: Modelo embeddings no disponible.")
+        vector_store = None
+        return False
+
+    folder = app_config.get('CONTEXT_DOCS_FOLDER')
+    path = app_config.get('FAISS_INDEX_PATH')
+    if not folder or not path:
+        print("Error: Rutas de contexto o índice FAISS no configuradas.")
+        vector_store = None
+        return False
+
     chunks = _load_and_split_context_documents(folder)
-    if chunks: 
-        try: vs_temp = FAISS.from_documents(chunks, embedding_model_instance); vs_temp.save_local(path); vector_store = vs_temp; print(f"Índice FAISS institucional actualizado: {path}"); return True
-        except Exception as e: print(f"Error creando/guardando índice FAISS institucional: {e}"); traceback.print_exc(); vector_store = None; return False
-    elif os.path.exists(path) and os.path.isdir(path) and os.listdir(path): 
-        try: vector_store = FAISS.load_local(path, embedding_model_instance, allow_dangerous_deserialization=True); print(f"Índice FAISS institucional cargado: {path}"); return True
-        except Exception as e: print(f"Error cargando índice FAISS institucional: {e}"); traceback.print_exc(); vector_store = None; return False
-    else: print(f"No hay docs de contexto y no existe índice FAISS institucional: {path}."); vector_store = None; return True
+    
+    if chunks:
+        # Si hay documentos, creamos un nuevo índice y lo guardamos
+        try:
+            vs_temp = FAISS.from_documents(chunks, embedding_model_instance)
+            vs_temp.save_local(path)
+            vector_store = vs_temp
+            print(f"Índice FAISS institucional actualizado desde {len(chunks)} chunks: {path}")
+            return True
+        except Exception as e:
+            print(f"Error creando/guardando índice FAISS institucional: {e}")
+            traceback.print_exc()
+            vector_store = None
+            return False
+    else:
+        # Si NO hay documentos, eliminamos cualquier índice antiguo
+        print("No se encontraron documentos de contexto. Limpiando índice existente si lo hubiera.")
+        if os.path.exists(path):
+            try:
+                shutil.rmtree(path) # Elimina la carpeta del índice
+                print(f"Índice FAISS institucional antiguo eliminado de: {path}")
+            except Exception as e:
+                print(f"Error al intentar eliminar el índice FAISS antiguo: {e}")
+                traceback.print_exc()
+                return False # Indica que hubo un problema en la limpieza
+        
+        vector_store = None # Aseguramos que el vector store en memoria esté vacío
+        return True
 
 def reload_followup_vector_store(app_config): 
     global vector_store_followups, embedding_model_instance

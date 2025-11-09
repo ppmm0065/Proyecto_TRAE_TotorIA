@@ -65,6 +65,8 @@ Utiliza la siguiente información para formular tus respuestas, integrándola de
 2.  **Historial de Seguimiento Relevante de la Entidad (Alumno/Curso)**: Este historial es crucial y puede incluir: Reportes 360 Previos, Observaciones Registradas por Usuarios, Planes de Intervención Anteriores y otros comentarios. Presta atención a la evolución temporal.
 3.  **Contexto de Datos Proporcionado (Estudiantes CSV)**: Analiza detalladamente los datos actuales del o los estudiantes (notas, observaciones del CSV, asistencia, etc.) para identificar patrones. **Si los datos del estudiante incluyen una columna llamada 'materias_debiles', presta especial atención a su contenido, ya que indica áreas específicas de dificultad reportadas.**
 4.  **Instrucción Específica del Usuario**: Responde directamente a la pregunta del usuario, considerando el modo de respuesta apropiado (directo o estructurado).
+5.  **Resumen de Datos Históricos (Evolución Cuantitativa)**: (SOLO SI SE PROPORCIONA) Este es un resumen de SQL precalculado que muestra la evolución de las *notas* de un estudiante.
+6.  **Resumen de Datos Cualitativos Históricos (Evolución de Comportamiento)**: (SOLO SI SE PROPORCIONA) Este es un listado cronológico de *todas* las observaciones de conducta, entrevistas y datos familiares registrados para un estudiante en cargas de datos anteriores. Úsalo para realizar un análisis interpretativo de su evolución conductual y actitudinal.
 
 Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empoderar a los docentes y profesionales de la educación con herramientas prácticas."""
 
