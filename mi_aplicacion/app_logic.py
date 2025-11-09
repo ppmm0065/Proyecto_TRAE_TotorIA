@@ -262,6 +262,108 @@ def get_student_evolution_summary(db_path, top_n=5, entity_name=None, order_dire
         traceback.print_exc()
         return f"Error al consultar la base de datos de evolución: {e}"
 
+def get_attendance_evolution_summary(db_path, top_n=5, entity_name=None, order_direction='DESC'):
+    """
+    Calcula la evolución de asistencia (promedio de `attendance_perc`) entre la
+    primera y la última instantánea por estudiante.
+
+    - Si `entity_name` está presente, devuelve el detalle para ese alumno.
+    - Si no, devuelve el Top-N de mejoras/caídas según `order_direction`.
+    """
+
+    query = """
+    WITH SnapshotAttendance AS (
+        SELECT
+            h.snapshot_id,
+            h.student_name,
+            s.timestamp,
+            AVG(h.attendance_perc) AS avg_attendance
+        FROM student_data_history h
+        JOIN data_snapshots s ON h.snapshot_id = s.id
+        GROUP BY h.snapshot_id, h.student_name, s.timestamp
+    ),
+    StudentEvolution AS (
+        SELECT
+            student_name,
+            FIRST_VALUE(avg_attendance) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+            ) AS first_avg_attendance,
+            LAST_VALUE(avg_attendance) OVER (
+                PARTITION BY student_name ORDER BY timestamp ASC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+            ) AS last_avg_attendance,
+            COUNT(snapshot_id) OVER (PARTITION BY student_name) AS num_snapshots
+        FROM SnapshotAttendance
+    ),
+    FinalEvolution AS (
+        SELECT
+            student_name,
+            first_avg_attendance,
+            last_avg_attendance,
+            (last_avg_attendance - first_avg_attendance) AS attendance_evolution
+        FROM StudentEvolution
+        WHERE num_snapshots > 1
+        GROUP BY student_name, first_avg_attendance, last_avg_attendance
+    )
+    SELECT
+        student_name,
+        first_avg_attendance,
+        last_avg_attendance,
+        attendance_evolution
+    FROM FinalEvolution
+    """
+
+    params = []
+    if order_direction.upper() not in ['ASC', 'DESC']:
+        order_direction = 'DESC'
+
+    if entity_name:
+        query += " WHERE student_name = ? AND attendance_evolution != 0"
+        params.append(entity_name)
+    else:
+        query += f" WHERE attendance_evolution != 0 ORDER BY attendance_evolution {order_direction} LIMIT ?"
+        params.append(top_n)
+
+    summary_lines = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+
+            if not rows:
+                if entity_name:
+                    return f"No se encontró historial de evolución de asistencia (más de 1 instantánea) para '{entity_name}'."
+                else:
+                    return "No se encontró historial de evolución de asistencia para ningún estudiante."
+
+            if entity_name:
+                summary_lines.append(f"Resumen de Evolución de Asistencia para {entity_name}:")
+            else:
+                direction_text = "Mejoras" if order_direction.upper() == 'DESC' else "Caídas"
+                summary_lines.append(f"Resumen de Evolución de Asistencia (Top {len(rows)} {direction_text}):")
+
+            for i, row in enumerate(rows):
+                evo = row['attendance_evolution'] or 0
+                sign = '+' if evo > 0 else ''
+                first_att = row['first_avg_attendance'] if row['first_avg_attendance'] is not None else 0
+                last_att = row['last_avg_attendance'] if row['last_avg_attendance'] is not None else 0
+                line = (
+                    f"{i+1}. {row['student_name']}: "
+                    f"Asistencia Inicial: {first_att:.1f}%, "
+                    f"Asistencia Final: {last_att:.1f}% "
+                    f"(Evolución: {sign}{evo:.1f} puntos porcentuales)"
+                )
+                summary_lines.append(line)
+
+        return "\n".join(summary_lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar evolución de asistencia: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos de evolución de asistencia: {e}"
+
 def get_student_qualitative_history(db_path, student_name):
     """
     Consulta la BD para obtener todos los registros cualitativos históricos
@@ -350,6 +452,139 @@ def get_student_qualitative_history(db_path, student_name):
         traceback.print_exc()
         return f"Error al consultar la base de datos de historial cualitativo: {e}"
 
+def get_course_qualitative_summary(db_path, course_name, max_entries=30):
+    """
+    Resume información cualitativa agregada para un curso:
+    - Totales por tipo (observaciones, entrevistas, familia)
+    - Conteos de entradas negativas/positivas (heurística por keywords)
+    - Lista de entradas recientes con fecha, alumno y tipo
+    """
+
+    config = current_app.config
+    qualitative_cols_mapping = {
+        'conduct_observation': (config.get('OBSERVACIONES_COL'), "Observación de Conducta"),
+        'interviews_info': (config.get('ENTREVISTAS_COL'), "Registro de Entrevista"),
+        'family_info': (config.get('FAMILIA_COL'), "Información Familiar")
+    }
+
+    db_cols_to_query = [db_col for db_col, (csv_col, _) in qualitative_cols_mapping.items() if csv_col is not None]
+    if not db_cols_to_query:
+        return "No hay columnas cualitativas (Observaciones, Entrevistas, Familia) configuradas en config.py."
+
+    select_clause_parts = ["s.timestamp", "h.student_name", "h.student_course"] + db_cols_to_query
+    select_clause = ", ".join(select_clause_parts)
+
+    query = f"""
+    SELECT
+        {select_clause}
+    FROM student_data_history h
+    JOIN data_snapshots s ON h.snapshot_id = s.id
+    WHERE LOWER(TRIM(h.student_course)) = ?
+    ORDER BY s.timestamp ASC
+    """
+
+    normalized_course = str(course_name).strip().lower()
+    params = (normalized_course,)
+
+    negative_keywords = [
+        'agresión','pelea','conflicto','disruptivo','falta','injustificado','tarde','retraso',
+        'negativo','bajo rendimiento','baja asistencia','problema','riesgo','bullying','maltrato',
+        'llamado de atención','amonestación','incumplimiento'
+    ]
+    positive_keywords = [
+        'logro','mejora','positivo','participación','compromiso','destacado','avance','progreso',
+        'buen comportamiento','colaboración','superación'
+    ]
+
+    def classify_text(text):
+        if not text: return None
+        t = str(text).lower()
+        neg = any(kw in t for kw in negative_keywords)
+        pos = any(kw in t for kw in positive_keywords)
+        if neg and not pos: return 'negativa'
+        if pos and not neg: return 'positiva'
+        return 'neutra'
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if not rows:
+                return f"No se encontró historial cualitativo para el curso '{course_name}'."
+
+            totals_by_type = {display: 0 for _, (_, display) in qualitative_cols_mapping.items()}
+            sentiment_counts = {'negativa': 0, 'positiva': 0, 'neutra': 0}
+            recent_entries = []
+
+            for row in rows:
+                for db_col, (_, display) in qualitative_cols_mapping.items():
+                    val = row[db_col] if db_col in row.keys() else None
+                    if val and str(val).strip():
+                        totals_by_type[display] += 1
+                        sentiment = classify_text(val)
+                        if sentiment: sentiment_counts[sentiment] += 1
+                        if len(recent_entries) < max_entries:
+                            recent_entries.append({
+                                'timestamp': row['timestamp'],
+                                'student_name': row['student_name'],
+                                'type': display,
+                                'text': str(val).strip()
+                            })
+
+            lines = [f"Resumen Cualitativo para Curso: {course_name}"]
+            lines.append("\nTotales por tipo:")
+            for display, count in totals_by_type.items():
+                lines.append(f"- {display}: {count}")
+
+            lines.append("\nClasificación heurística (palabras clave):")
+            lines.append(f"- Positivas: {sentiment_counts['positiva']}")
+            lines.append(f"- Neutras: {sentiment_counts['neutra']}")
+            lines.append(f"- Negativas: {sentiment_counts['negativa']}")
+
+            if recent_entries:
+                lines.append("\nEntradas recientes (máx. {max_entries}):")
+                for i, e in enumerate(recent_entries, start=1):
+                    # Recortar texto para mantener legibilidad
+                    txt = e['text']
+                    if len(txt) > 220: txt = txt[:220] + '…'
+                    # Convertir timestamp a fecha legible
+                    try:
+                        naive_dt = datetime.datetime.strptime(e['timestamp'], '%Y-%m-%d %H:%M:%S')
+                        utc_dt = pytz.utc.localize(naive_dt)
+                        local_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                        fecha = local_dt.strftime('%Y-%m-%d')
+                    except Exception:
+                        fecha = str(e['timestamp']).split(' ')[0]
+                    lines.append(f"{i}. [{fecha}] {e['student_name']} - {e['type']}: {txt}")
+
+            return "\n".join(lines)
+
+    except Exception as e:
+        print(f"Error CRÍTICO al consultar resumen cualitativo por curso: {e}")
+        traceback.print_exc()
+        return f"Error al consultar la base de datos para resumen cualitativo de curso: {e}"
+
+# Helper de presupuesto de caracteres a nivel de módulo
+def _trim_to_char_budget(text: str, budget: int) -> str:
+    try:
+        if budget is None or budget <= 0:
+            return ""
+        if text is None:
+            return ""
+        if len(text) <= budget:
+            return text
+        # Recorta y añade indicador de truncado para trazabilidad
+        return text[:budget] + f"… [truncado a {budget} caracteres]"
+    except Exception:
+        # En caso de error, devuelve una versión segura
+        try:
+            return (text or "")[:max(0, budget or 0)]
+        except Exception:
+            return ""
+
 def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup, 
                              chat_history_string="", is_reporte_360=False, 
                              is_plan_intervencion=False, is_direct_chat_query=False,
@@ -431,41 +666,119 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
             traceback.print_exc()
             
+    # --- Helpers de presupuesto de prompt ---
+    def _trim_to_char_budget(text: str, max_chars: int) -> str:
+        try:
+            if text is None:
+                return ""
+            s = str(text)
+            if max_chars <= 0:
+                return ""
+            if len(s) <= max_chars:
+                return s
+            # Recortar y añadir marca de truncado
+            trimmed = s[:max_chars]
+            return trimmed + "\n[...texto truncado por presupuesto...]"
+        except Exception:
+            return str(text)[:max_chars]
+
+    # Calcular presupuestos por sección
+    enable_budget = bool(current_app.config.get('ENABLE_PROMPT_BUDGETING', True))
+    total_prompt_chars = int(current_app.config.get('PROMPT_MAX_CHARS', 24000))
+    budgets = current_app.config.get('PROMPT_SECTION_CHAR_BUDGETS', {}) or {}
+    def budget_for(section_key: str, default_ratio: float) -> int:
+        ratio = float(budgets.get(section_key, default_ratio))
+        if ratio < 0: ratio = 0
+        return max(0, int(total_prompt_chars * ratio))
+
+    chat_hist_budget = budget_for('chat_history', 0.10)
+    qual_docs_budget = budget_for('key_docs_and_qualitative', 0.25)
+    rag_inst_budget = min(budget_for('rag_institutional', 0.25), int(current_app.config.get('RAG_INST_MAX_CHARS', 8000)))
+    rag_fu_budget = min(budget_for('rag_followups', 0.20), int(current_app.config.get('RAG_FOLLOWUP_MAX_CHARS', 8000)))
+    hist_quant_budget = budget_for('historical_quantitative', 0.10)
+    csv_budget = budget_for('csv_or_base_context', 0.10)
+
     # --- Construct final prompt for Gemini ---
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
         
         prompt_parts = []
-        prompt_parts.append(current_app.config.get('GEMINI_SYSTEM_ROLE_PROMPT', "Eres un asistente útil."))
+        system_prompt = current_app.config.get('GEMINI_SYSTEM_ROLE_PROMPT', "Eres un asistente útil.")
+        # Refuerzo específico para consultas por curso: usar datos agregados del CSV del curso
+        if entity_type == 'curso' and entity_name:
+            system_prompt = (
+                system_prompt +
+                "\nDirectriz: cuando la entidad es un curso, analiza patrones agregados y oportunidades de mejora del curso completo usando los datos del CSV filtrados para ese curso. Evita centrar el análisis en un solo alumno salvo que el usuario lo solicite explícitamente."
+            )
+        prompt_parts.append(system_prompt)
 
         if not is_reporte_360 and not is_plan_intervencion: 
             if chat_history_string:
-                prompt_parts.append(f"\n--- INICIO HISTORIAL DE CONVERSACIÓN PREVIA ---\n{chat_history_string}\n--- FIN HISTORIAL DE CONVERSACIÓN PREVIA ---\n")
+                prompt_parts.append("\n--- INICIO HISTORIAL DE CONVERSACIÓN PREVIA ---\n")
+                prompt_parts.append(_trim_to_char_budget(chat_history_string, chat_hist_budget) if enable_budget else chat_history_string)
+                prompt_parts.append("\n--- FIN HISTORIAL DE CONVERSACIÓN PREVIA ---\n")
             
-            prompt_parts.extend([
-                "Contexto Institucional Relevante (Información general de la institución, si se encontró para la consulta):\n```\n", retrieved_context_inst, "\n```\n---",
-                f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc., si se encontraron para la consulta):\n```\n", retrieved_context_followup, "\n```\n---",
-            ])
+            is_course_query = (entity_type == 'curso')
+            if is_course_query:
+                # Para curso: priorizar datos del CSV primero, luego cuantitativo histórico, luego cualitativo, luego RAG
+                prompt_parts.append("Contexto Principal de Datos del Curso (CSV filtrado al curso):\n```\n")
+                data_block_initial = _trim_to_char_budget(data_string, csv_budget) if enable_budget else data_string
+                prompt_parts.append(data_block_initial)
+                prompt_parts.append("\n```\n---")
+
+                if historical_data_summary_string:
+                    prompt_parts.append("Resumen de Datos Históricos del Curso (Evolución de notas calculada desde la Base de Datos):\n```\n")
+                    hist_block_initial = _trim_to_char_budget(historical_data_summary_string, hist_quant_budget) if enable_budget else historical_data_summary_string
+                    prompt_parts.append(hist_block_initial)
+                    prompt_parts.append("\n```\n---")
+
+                if qualitative_history_summary_string:
+                    prompt_parts.append("Resumen de Datos Cualitativos Históricos del Curso (conducta, entrevistas, etc.):\n```\n")
+                    qual_block = _trim_to_char_budget(qualitative_history_summary_string, qual_docs_budget) if enable_budget else qualitative_history_summary_string
+                    prompt_parts.append(qual_block)
+                    prompt_parts.append("\n```\n---")
+
+                # Finalmente RAG
+                prompt_parts.extend([
+                    "Contexto Institucional Relevante (Información general de la institución):\n```\n",
+                    (_trim_to_char_budget(retrieved_context_inst, rag_inst_budget) if enable_budget else retrieved_context_inst),
+                    "\n```\n---",
+                    f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc.):\n```\n",
+                    (_trim_to_char_budget(retrieved_context_followup, rag_fu_budget) if enable_budget else retrieved_context_followup),
+                    "\n```\n---",
+                ])
+            else:
+                # Orden previo para alumno u otros: cualitativo -> RAG -> histórico -> CSV
+                if qualitative_history_summary_string:
+                    prompt_parts.append("Resumen de Datos Cualitativos Históricos (Evolución de conducta, entrevistas, etc. ordenado por fecha):\n```\n")
+                    qual_block = _trim_to_char_budget(qualitative_history_summary_string, qual_docs_budget) if enable_budget else qualitative_history_summary_string
+                    prompt_parts.append(qual_block)
+                    prompt_parts.append("\n```\n---")
+
+                prompt_parts.extend([
+                    "Contexto Institucional Relevante (Información general de la institución, si se encontró para la consulta):\n```\n",
+                    (_trim_to_char_budget(retrieved_context_inst, rag_inst_budget) if enable_budget else retrieved_context_inst),
+                    "\n```\n---",
+                    f"{retrieved_context_followup_header} (Reportes 360 previos, Observaciones registradas, etc., si se encontraron para la consulta):\n```\n",
+                    (_trim_to_char_budget(retrieved_context_followup, rag_fu_budget) if enable_budget else retrieved_context_followup),
+                    "\n```\n---",
+                ])
         
-        if historical_data_summary_string:
-            prompt_parts.append(
-                "Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n"
-            )
-            prompt_parts.append(historical_data_summary_string)
+        # Para alumno u otros, añadimos histórico y CSV al final como estaba
+        if not (entity_type == 'curso' and not is_reporte_360 and not is_plan_intervencion):
+            if historical_data_summary_string:
+                prompt_parts.append("Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n")
+                hist_block = _trim_to_char_budget(historical_data_summary_string, hist_quant_budget) if enable_budget else historical_data_summary_string
+                prompt_parts.append(hist_block)
+                prompt_parts.append("\n```\n---")
+
+            prompt_parts.append("Contexto Principal de Datos para la Consulta Actual (Datos del CSV para la entidad, o Reporte 360 base para el plan):\n```\n")
+            data_block = _trim_to_char_budget(data_string, csv_budget) if enable_budget else data_string
+            prompt_parts.append(data_block)
             prompt_parts.append("\n```\n---")
-        
-        # --- INICIO: NUEVO BLOQUE PARA HISTORIAL CUALITATIVO ---
-        if qualitative_history_summary_string:
-            prompt_parts.append(
-                "Resumen de Datos Cualitativos Históricos (Evolución de conducta, entrevistas, etc. ordenado por fecha):\n```\n"
-            )
-            prompt_parts.append(qualitative_history_summary_string)
-            prompt_parts.append("\n```\n---")
-        # --- FIN: NUEVO BLOQUE ---
 
         prompt_parts.extend([
-            "Contexto Principal de Datos para la Consulta Actual (Datos del CSV para la entidad, o Reporte 360 base para el plan):\n```\n", data_string, "\n```\n---",
             "Instrucción Específica del Usuario (Pregunta Actual o Solicitud):\n", f'"{final_user_instruction}"', "\n---",
         ])
 
@@ -475,6 +788,15 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             pass 
 
         final_prompt_string = "\n".join(filter(None, prompt_parts)) 
+
+        # Logging de tamaños por sección
+        if current_app.config.get('LOG_PROMPT_SECTIONS', True):
+            try:
+                current_app.logger.info(
+                    f"Prompt budgeting: chat_hist={chat_hist_budget}, qual_docs={qual_docs_budget}, rag_inst={rag_inst_budget}, rag_fu={rag_fu_budget}, hist_quant={hist_quant_budget}, csv={csv_budget}, total_chars={len(final_prompt_string)}"
+                )
+            except Exception:
+                pass
 
         response = model.generate_content(final_prompt_string)
         

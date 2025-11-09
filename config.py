@@ -201,6 +201,61 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
     ENTREVISTAS_COL = 'Entrevistas' 
     ASISTENCIA_COL = 'Asistencia' 
 
+    # --- NUEVA CONFIGURACIÓN DE FEATURES Y TRAZABILIDAD ---
+    # Flags para activar/desactivar características de resumen y contexto
+    ENABLE_ATTENDANCE_SUMMARY = True
+    ENABLE_QUALITATIVE_SUMMARY = True
+    INCLUDE_KEY_DOCS_IN_PROMPT = True
+    # Control del bloque de Documentos Clave recientes
+    KEY_DOCS_MAX_ITEMS = 2
+    KEY_DOCS_INCLUDE_EXCERPTS = True
+    KEY_DOCS_EXCERPT_LINES = 8
+    KEY_DOCS_EXCERPT_CHARS = 1000
+
+    # Política de manejo de ambigüedades de cursos
+    # 'ask' -> Solicita letra/paralelo cuando hay múltiples opciones
+    # 'default' -> Selecciona por defecto usando DEFAULT_PARALLEL si existe
+    COURSE_AMBIGUITY_POLICY = 'ask'
+    DEFAULT_PARALLEL = 'A'
+
+    # Logging adicional para trazabilidad de secciones del prompt
+    LOG_PROMPT_SECTIONS = True
+
+    # Presupuesto de prompt y secciones (en caracteres)
+    ENABLE_PROMPT_BUDGETING = True
+    PROMPT_MAX_CHARS = 24000
+    PROMPT_SECTION_CHAR_BUDGETS = {
+        'chat_history': 0.10,
+        'key_docs_and_qualitative': 0.25,
+        'rag_institutional': 0.25,
+        'rag_followups': 0.20,
+        'historical_quantitative': 0.10,
+        'csv_or_base_context': 0.10
+    }
+    # Presupuestos máximos específicos para RAG (aplicados además del total)
+    RAG_INST_MAX_CHARS = 8000
+    RAG_FOLLOWUP_MAX_CHARS = 8000
+
+    # Listas de keywords configurables (se pueden sobreescribir por entorno)
+    EVOLUTION_KEYWORDS = [
+        'evolución', 'historial', 'progreso', 'rendimiento histórico',
+        'variación', 'tendencia', 'cambio'
+    ]
+    NEGATIVE_EVOLUTION_KEYWORDS = [
+        'empeoramiento', 'peor', 'bajado', 'disminuido', 'caída', 'regresión'
+    ]
+    ATTENDANCE_KEYWORDS = [
+        'asistencia', 'inasistencia', 'faltas', 'presentismo', 'ausentismo',
+        'evolución de asistencia', 'histórico de asistencia', 'tendencia de asistencia'
+    ]
+    QUALITATIVE_KEYWORDS = [
+        'cualitativo', 'conducta', 'comportamiento', 'observaciones', 'entrevistas', 'familia',
+        'resumen cualitativo', 'historial cualitativo', 'evolución conductual'
+    ]
+
+    # Nivel de logging de la aplicación (INFO por defecto)
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+
 
 class DevelopmentConfig(Config):
     """Configuración para desarrollo."""

@@ -46,7 +46,9 @@ from .app_logic import (
     save_observation_for_reporte_360,
     save_data_snapshot_to_db,
     get_student_evolution_summary,
+    get_attendance_evolution_summary,
     get_student_qualitative_history,
+    get_course_qualitative_summary,
     get_observations_for_reporte_360
 )
 import sqlite3
@@ -56,6 +58,252 @@ main_bp = Blueprint('main', __name__)
 # --- INICIO: DEFINICIÓN DE ZONA HORARIA ---
 SANTIAGO_TZ = timezone('America/Santiago')
 # --- FIN: DEFINICIÓN DE ZONA HORARIA ---
+
+# --- Manejador global de errores para API: devuelve JSON en vez de HTML ---
+from werkzeug.exceptions import HTTPException
+
+@main_bp.errorhandler(Exception)
+def handle_main_bp_exception(e):
+    try:
+        # Para rutas de API aseguramos respuestas JSON siempre
+        if request.path.startswith('/api/'):
+            current_app.logger.exception(f"Excepción no controlada en API: {e}")
+            if isinstance(e, HTTPException):
+                return jsonify({"error": e.description}), e.code
+            return jsonify({"error": "Error inesperado en el servidor."}), 500
+    except Exception:
+        # Si algo falla aquí, devolvemos un 500 genérico en JSON para API
+        if request.path.startswith('/api/'):
+            return jsonify({"error": "Error inesperado en el servidor."}), 500
+    # Para rutas no-API, dejamos el manejo estándar (HTML)
+    return e
+
+# --- Utilitarios de normalización de texto (para detección robusta) ---
+import unicodedata
+def _normalize_text(s: str) -> str:
+    if s is None: return ''
+    # Quitar tildes, bajar a minúsculas y normalizar espacios
+    s_nfkd = unicodedata.normalize('NFKD', str(s))
+    s_ascii = ''.join([c for c in s_nfkd if not unicodedata.combining(c)])
+    return ' '.join(s_ascii.lower().strip().split())
+
+def _build_key_docs_block(tipo_entidad: str, nombre_entidad: str, current_filename: str) -> str:
+    """Construye un bloque seguro con documentos clave recientes (Reportes 360 y
+    Planes de Intervención) para la entidad. Puede incluir extractos configurables.
+    """
+    try:
+        db_path = current_app.config['DATABASE_FILE']
+        max_items = int(current_app.config.get('KEY_DOCS_MAX_ITEMS', 2))
+        include_excerpts = bool(current_app.config.get('KEY_DOCS_INCLUDE_EXCERPTS', True))
+        excerpt_lines = int(current_app.config.get('KEY_DOCS_EXCERPT_LINES', 8))
+        excerpt_chars = int(current_app.config.get('KEY_DOCS_EXCERPT_CHARS', 1000))
+        log_sections = bool(current_app.config.get('LOG_PROMPT_SECTIONS', True))
+
+        reportes = get_historical_reportes_360_for_entity(db_path, tipo_entidad, nombre_entidad, current_filename) or []
+        planes = get_intervention_plans_for_entity(db_path, tipo_entidad, nombre_entidad, current_filename) or []
+
+        # Seleccionar hasta N de cada tipo
+        top_reportes = reportes[:max_items]
+        top_planes = planes[:max_items]
+
+        bloques = []
+
+        def _mk_excerpt(md: str) -> str:
+            if not include_excerpts or not md:
+                return ""
+            # Limitar por líneas y caracteres para controlar tokens
+            lines = md.splitlines()
+            first_lines = lines[:excerpt_lines]
+            excerpt = "\n".join(first_lines)
+            if len(excerpt) > excerpt_chars:
+                excerpt = excerpt[:excerpt_chars]
+            return f"\nResumen breve:\n---\n{excerpt}\n---"
+
+        for r in top_reportes:
+            ts = r.get('timestamp_formateado', r.get('timestamp', ''))
+            md = r.get('reporte_markdown')
+            entry = f"* Reporte 360 — {ts}{_mk_excerpt(md)}"
+            bloques.append(entry)
+
+        for p in top_planes:
+            ts = p.get('timestamp', '')
+            md = p.get('plan_markdown')
+            entry = f"* Plan de Intervención — {ts}{_mk_excerpt(md)}"
+            bloques.append(entry)
+
+        if not bloques:
+            return ""  # No añadir nada si no hay documentos
+
+        header = "\n\nDocumentos clave recientes (contexto anclado):\n"
+        block = header + "\n".join(bloques) + "\n"
+
+        if log_sections:
+            try:
+                current_app.logger.info(
+                    f"Prompt: Documentos clave incluidos — items={len(bloques)}, chars={len(block)}"
+                )
+            except Exception:
+                pass
+
+        return block
+    except Exception as e:
+        current_app.logger.exception(f"Error al construir bloque de documentos clave: {e}")
+        return ""
+
+# --- Helpers de Keywords desde configuración ---
+def _get_keywords_from_config(config_key: str, default_list: list) -> list:
+    try:
+        override = current_app.config.get(config_key)
+        if isinstance(override, (list, tuple)) and override:
+            return [str(x).lower() for x in override]
+    except Exception:
+        pass
+    return default_list
+
+def get_attendance_keywords():
+    return _get_keywords_from_config('ATTENDANCE_KEYWORDS', ATTENDANCE_KEYWORDS)
+
+def get_qualitative_keywords():
+    return _get_keywords_from_config('QUALITATIVE_KEYWORDS', QUALITATIVE_KEYWORDS)
+
+def get_evolution_keywords():
+    return _get_keywords_from_config('EVOLUTION_KEYWORDS', EVOLUTION_KEYWORDS)
+
+def get_negative_evolution_keywords():
+    return _get_keywords_from_config('NEGATIVE_EVOLUTION_KEYWORDS', NEGATIVE_EVOLUTION_KEYWORDS)
+
+# Matcher robusto: normaliza prompt y keywords y detecta ocurrencias
+def any_keyword_in_prompt(prompt_text: str, keywords: list) -> bool:
+    if not prompt_text or not keywords:
+        return False
+    pt_norm = _normalize_text(prompt_text)
+    for kw in keywords:
+        if not kw:
+            continue
+        if _normalize_text(kw) in pt_norm:
+            return True
+    return False
+
+# Aliases de cursos para detección robusta
+def generate_course_aliases(course_name: str) -> set:
+    aliases = set()
+    if not course_name:
+        return aliases
+    # base normalizado
+    base_norm = _normalize_text(course_name)
+    aliases.add(base_norm)
+    # quitar símbolos ordinales (° y º)
+    no_ordinal = base_norm.replace('°', '').replace('º', '').strip()
+    aliases.add(' '.join(no_ordinal.split()))
+    # quitar 'o' luego de dígitos (ej: '3o basico b' -> '3 basico b')
+    import re
+    aliases.add(re.sub(r"(\d)\s*o(\s)", r"\1\2", base_norm))
+    aliases.add(re.sub(r"(\d)\s*o$", r"\1", base_norm))
+    # abreviación común: 'basico' -> 'bas'
+    aliases.add(base_norm.replace(' basico ', ' bas '))
+    aliases.add(no_ordinal.replace(' basico ', ' bas '))
+    # medio abreviado
+    aliases.add(base_norm.replace(' medio ', ' med '))
+    aliases.add(no_ordinal.replace(' medio ', ' med '))
+    # abreviación aún más corta: 'medio' -> ' m '
+    aliases.add(base_norm.replace(' medio ', ' m '))
+    aliases.add(no_ordinal.replace(' medio ', ' m '))
+    # formas con número a partir de palabras ordinales
+    ordinal_map = {
+        'primero': '1', 'primer': '1', '1ro': '1', '1ero': '1',
+        'segundo': '2', '2do': '2', '2ndo': '2',
+        'tercero': '3', '3ro': '3', '3ero': '3',
+        'cuarto': '4', '4to': '4', '4to.': '4',
+        'quinto': '5', '5to': '5',
+        'sexto': '6', '6to': '6',
+        'septimo': '7', 'séptimo': '7', '7mo': '7',
+        'octavo': '8', '8vo': '8'
+    }
+    tokens = no_ordinal.split()
+    tokens_num = [ordinal_map.get(t, t) for t in tokens]
+    aliases.add(' '.join(tokens_num))
+    # si hay letra de paralelo al final, crear variantes sin la letra
+    if tokens and len(tokens[-1]) == 1 and tokens[-1].isalpha():
+        sin_letra = ' '.join(tokens[:-1])
+        aliases.add(sin_letra)
+        # con abreviaciones aplicadas también sin letra
+        sin_letra_bas = sin_letra.replace(' basico ', ' bas ')
+        sin_letra_med = sin_letra.replace(' medio ', ' med ')
+        aliases.add(' '.join(sin_letra_bas.split()))
+        aliases.add(' '.join(sin_letra_med.split()))
+        aliases.add(' '.join(sin_letra.replace(' medio ', ' m ').split()))
+    # variantes sin espacios en número-etapa y etapa-letra (p.ej., '1m a' -> '1ma')
+    compact = re.sub(r"(\d)\s+(med|m|bas)\s*", r"\1\2 ", ' '.join(tokens_num))
+    aliases.add(compact)
+    if tokens and len(tokens[-1]) == 1 and tokens[-1].isalpha():
+        aliases.add((compact + tokens[-1]).replace(' ', ''))
+        # NUEVO: aceptar formas solo numero + letra (con y sin símbolo '°')
+        num_token = None
+        for t in tokens_num:
+            if re.match(r"^\d+$", t):
+                num_token = t
+                break
+        if num_token:
+            letter = tokens[-1]
+            aliases.add(f"{num_token} {letter}")       # '8 b'
+            aliases.add(f"{num_token}{letter}")        # '8b'
+            aliases.add(f"{num_token}° {letter}")     # '8° b'
+            aliases.add(f"{num_token}°{letter}")      # '8°b'
+    # compactar espacios finales
+    # compactar espacios
+    aliases = { ' '.join(a.split()) for a in aliases if a }
+    return aliases
+
+def find_course_in_prompt(course_names: list, prompt_text: str) -> str:
+    pt_norm = _normalize_text(prompt_text)
+    for name in course_names:
+        for alias in generate_course_aliases(name):
+            if alias and alias in pt_norm:
+                return name
+    return None
+
+def detect_course_or_ambiguity(course_names: list, prompt_text: str):
+    """
+    Devuelve (resolved_course, ambiguous_level, candidates).
+    - resolved_course: nombre del curso cuando hay coincidencia clara.
+    - ambiguous_level: cadena del nivel detectado cuando hay múltiples paralelos.
+    - candidates: lista de nombres de curso que comparten el nivel.
+    """
+    pt_norm = _normalize_text(prompt_text)
+    import re
+    # Primero: coincidencia clara con alias completos
+    for name in course_names:
+        for alias in generate_course_aliases(name):
+            if alias and alias in pt_norm:
+                # Verificar si alias incluye paralelo
+                tokens = alias.split()
+                if tokens and len(tokens[-1]) == 1 and tokens[-1].isalpha():
+                    return name, None, []
+                # Alias sin letra podría ser ambigüo: seguir verificando por nivel
+                # Construimos mapa de nivel -> cursos
+                break
+    # Construir mapa de nivel (sin paralelo) -> cursos
+    def strip_parallel(nm: str):
+        t = _normalize_text(nm).split()
+        if t and len(t[-1]) == 1 and t[-1].isalpha():
+            t = t[:-1]
+        return ' '.join(t)
+
+    level_map = {}
+    for nm in course_names:
+        lvl = strip_parallel(nm)
+        level_map.setdefault(lvl, []).append(nm)
+
+    # Detectar niveles presentes en prompt
+    for lvl, courses in level_map.items():
+        # considerar alias del nivel también (aplica abreviaciones)
+        lvl_aliases = generate_course_aliases(lvl)
+        if any(a and a in pt_norm for a in lvl_aliases):
+            if len(courses) == 1:
+                return courses[0], None, []
+            else:
+                return None, lvl, courses
+    return None, None, []
 
 # --- Rutas Principales ---
 @main_bp.route('/')
@@ -437,6 +685,11 @@ QUALITATIVE_KEYWORDS = [
     'familia', 'apoderado', 'anotaciones'
 ]
 
+# Nuevo grupo: palabras clave de asistencia
+ATTENDANCE_KEYWORDS = [
+    'asistencia', 'inasistencia', 'ausencias', 'presentismo', 'falta', 'faltas'
+]
+
 # --- Rutas de API ---
 @main_bp.route('/api/alertas/menor_promedio_niveles')
 def api_alertas_menor_promedio_niveles():
@@ -639,14 +892,18 @@ def api_detalle_chat():
         return jsonify({"error": "No se pudo cargar el DataFrame."}), 500
 
     prompt_lower = user_prompt.lower()
+    prompt_norm = _normalize_text(user_prompt)
+    ambiguity_message = ""
+    prompt_norm = _normalize_text(user_prompt)
+    prompt_norm = _normalize_text(user_prompt)
     
     # --- Lógica de Resumen Cuantitativo (Notas) ---
     historical_data_summary = ""
-    if tipo_entidad == 'alumno' and any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
+    if tipo_entidad == 'alumno' and any_keyword_in_prompt(user_prompt, get_evolution_keywords()):
         try:
-            print(f"Detectada intención de evolución CUANTITATIVA para: {nombre_entidad}")
+            current_app.logger.info(f"Detectada intención de evolución CUANTITATIVA para: {nombre_entidad}")
             db_path = current_app.config['DATABASE_FILE']
-            order_dir = 'ASC' if any(kw in prompt_lower for kw in NEGATIVE_EVOLUTION_KEYWORDS) else 'DESC'
+            order_dir = 'ASC' if any_keyword_in_prompt(user_prompt, get_negative_evolution_keywords()) else 'DESC'
             
             historical_data_summary = get_student_evolution_summary(
                 db_path, 
@@ -654,22 +911,57 @@ def api_detalle_chat():
                 order_direction=order_dir
             )
         except Exception as e:
-            print(f"Error al obtener resumen de evolución de notas para {nombre_entidad}: {e}")
+            current_app.logger.error(f"Error al obtener resumen de evolución de notas para {nombre_entidad}: {e}")
             historical_data_summary = f"Error al consultar historial de notas: {e}"
+
+    # --- NUEVO: Evolución de Asistencia por Alumno ---
+    if tipo_entidad == 'alumno' and any_keyword_in_prompt(user_prompt, get_attendance_keywords()) and current_app.config.get('ENABLE_ATTENDANCE_SUMMARY', True):
+        try:
+            current_app.logger.info(f"Detectada intención de evolución de ASISTENCIA para: {nombre_entidad}")
+            db_path = current_app.config['DATABASE_FILE']
+            order_dir_att = 'ASC' if any_keyword_in_prompt(user_prompt, get_negative_evolution_keywords()) else 'DESC'
+            attendance_summary = get_attendance_evolution_summary(
+                db_path,
+                entity_name=nombre_entidad,
+                order_direction=order_dir_att
+            )
+            historical_data_summary = (historical_data_summary + "\n\n" + attendance_summary).strip()
+        except Exception as e:
+            current_app.logger.error(f"Error al obtener resumen de asistencia para {nombre_entidad}: {e}")
+            # No sobreescribir el resumen existente; solo añadir mensaje
+            historical_data_summary = (historical_data_summary + f"\n\nError asistencia: {e}").strip()
             
     # --- INICIO: NUEVA LÓGICA DE RESUMEN CUALITATIVO (Comportamiento) ---
     qualitative_history_summary = ""
-    if tipo_entidad == 'alumno' and any(kw in prompt_lower for kw in QUALITATIVE_KEYWORDS):
+    if tipo_entidad == 'alumno' and any_keyword_in_prompt(user_prompt, get_qualitative_keywords()) and current_app.config.get('ENABLE_QUALITATIVE_SUMMARY', True):
         try:
-            print(f"Detectada intención de evolución CUALITATIVA para: {nombre_entidad}")
+            current_app.logger.info(f"Detectada intención de evolución CUALITATIVA para: {nombre_entidad}")
             db_path = current_app.config['DATABASE_FILE']
             qualitative_history_summary = get_student_qualitative_history(
                 db_path, 
                 student_name=nombre_entidad
             )
         except Exception as e:
-            print(f"Error al obtener resumen de evolución cualitativa para {nombre_entidad}: {e}")
+            current_app.logger.error(f"Error al obtener resumen de evolución cualitativa para {nombre_entidad}: {e}")
             qualitative_history_summary = f"Error al consultar historial cualitativo: {e}"
+    elif tipo_entidad == 'curso' and any_keyword_in_prompt(user_prompt, get_qualitative_keywords()) and current_app.config.get('ENABLE_QUALITATIVE_SUMMARY', True):
+        try:
+            current_app.logger.info(f"Detectada intención de resumen CUALITATIVO agregado para curso: {nombre_entidad}")
+            db_path = current_app.config['DATABASE_FILE']
+            qualitative_history_summary = get_course_qualitative_summary(
+                db_path,
+                course_name=nombre_entidad,
+                max_entries=current_app.config.get('MAX_QUALITATIVE_ENTRIES', 30)
+            )
+        except Exception as e:
+            current_app.logger.error(f"Error al obtener resumen cualitativo por curso {nombre_entidad}: {e}")
+            qualitative_history_summary = f"Error al consultar resumen cualitativo del curso: {e}"
+
+    # Adjuntar documentos clave recientes al bloque cualitativo
+    include_docs = current_app.config.get('INCLUDE_KEY_DOCS_IN_PROMPT', True)
+    key_docs_block = _build_key_docs_block(tipo_entidad, nombre_entidad, session.get('current_file_path')) if include_docs else ""
+    if key_docs_block:
+        qualitative_history_summary = (qualitative_history_summary + key_docs_block).strip()
     # --- FIN: NUEVA LÓGICA ---
 
     df_entidad = pd.DataFrame()
@@ -727,9 +1019,17 @@ def crear_respuesta_directa(texto_markdown):
 
 @main_bp.route('/api/submit_advanced_chat', methods=['POST'])
 def api_submit_advanced_chat(): 
-    if not session.get('current_file_path'): return jsonify({"error": "No hay archivo CSV."}), 400
-    data = request.json; user_prompt = data.get('prompt')
-    if not user_prompt: return jsonify({"error": "No se recibió prompt."}), 400
+    try:
+        if not session.get('current_file_path'):
+            return jsonify({"error": "No hay archivo CSV."}), 400
+        data = request.get_json(silent=True) or {}
+        user_prompt = data.get('prompt')
+        if not user_prompt:
+            return jsonify({"error": "No se recibió prompt."}), 400
+
+    except Exception as e:
+        current_app.logger.exception(f"Error inesperado en api_submit_advanced_chat (validación): {e}")
+        return jsonify({"error": f"Error inesperado en el servidor: {str(e)}"}), 500
 
     if 'consumo_sesion' not in session:
         session['consumo_sesion'] = {'total_tokens': 0, 'total_cost': 0.0}
@@ -742,14 +1042,17 @@ def api_submit_advanced_chat():
     data_string = ""
     entity_type = None
     entity_name = None
+    # Inicializaciones necesarias para evitar excepciones de variables no definidas
+    prompt_norm = _normalize_text(user_prompt)
+    ambiguity_message = ""
     
     # --- Lógica de Resumen Cuantitativo (Notas) ---
     historical_data_summary = ""
-    if any(kw in prompt_lower for kw in EVOLUTION_KEYWORDS):
+    if any_keyword_in_prompt(user_prompt, get_evolution_keywords()):
         try:
-            print("Detectada intención de evolución CUANTITATIVA general (Chat Avanzado).")
+            current_app.logger.info("Detectada intención de evolución CUANTITATIVA general (Chat Avanzado).")
             db_path = current_app.config['DATABASE_FILE']
-            order_dir = 'ASC' if any(kw in prompt_lower for kw in NEGATIVE_EVOLUTION_KEYWORDS) else 'DESC'
+            order_dir = 'ASC' if any_keyword_in_prompt(user_prompt, get_negative_evolution_keywords()) else 'DESC'
 
             historical_data_summary = get_student_evolution_summary(
                 db_path, 
@@ -757,8 +1060,24 @@ def api_submit_advanced_chat():
                 order_direction=order_dir
             )
         except Exception as e:
-            print(f"Error al obtener resumen de evolución general: {e}")
+            current_app.logger.error(f"Error al obtener resumen de evolución general: {e}")
             historical_data_summary = f"Error al consultar historial: {e}"
+
+    # Nuevo: Evolución de asistencia general (Top-N)
+    if any_keyword_in_prompt(user_prompt, get_attendance_keywords()) and not entity_type and current_app.config.get('ENABLE_ATTENDANCE_SUMMARY', True):
+        try:
+            current_app.logger.info("Detectada intención de evolución de ASISTENCIA general (Chat Avanzado).")
+            db_path = current_app.config['DATABASE_FILE']
+            order_dir_att = 'ASC' if any_keyword_in_prompt(user_prompt, get_negative_evolution_keywords()) else 'DESC'
+            attendance_summary = get_attendance_evolution_summary(
+                db_path,
+                top_n=current_app.config.get('TOP_N_EVOLUTION', 5),
+                order_direction=order_dir_att
+            )
+            historical_data_summary = (historical_data_summary + "\n\n" + attendance_summary).strip()
+        except Exception as e:
+            current_app.logger.error(f"Error al obtener resumen de asistencia general: {e}")
+            historical_data_summary = (historical_data_summary + f"\n\nError asistencia: {e}").strip()
 
     # --- Lógica de Detección de Entidad (para CUALITATIVO) ---
     file_path = session.get('current_file_path')
@@ -767,48 +1086,124 @@ def api_submit_advanced_chat():
     student_names = df_global[nombre_col].unique().tolist()
     course_names = df_global[curso_col].unique().tolist()
 
-    found_student = next((name for name in student_names if name.lower() in prompt_lower), None)
+    found_student = next((name for name in student_names if _normalize_text(name) in prompt_norm), None)
     if found_student:
         entity_type = 'alumno'
         entity_name = found_student
-        print(f"DEBUG: Chat Avanzado detectó entidad ALUMNO: {entity_name}")
+        current_app.logger.info(f"Chat Avanzado detectó entidad ALUMNO: {entity_name}")
         df_entidad = df_global[df_global[nombre_col] == entity_name]
         data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
     else:
-        found_course = next((name for name in course_names if name.lower() in prompt_lower), None)
-        if found_course:
+        # Resolver curso o detectar ambigüedad por nivel sin paralelo
+        resolved_course, amb_level, candidates = detect_course_or_ambiguity(course_names, user_prompt)
+        if resolved_course:
             entity_type = 'curso'
-            entity_name = found_course
-            print(f"DEBUG: Chat Avanzado detectó entidad CURSO: {entity_name}")
+            entity_name = resolved_course
+            current_app.logger.info(f"Chat Avanzado detectó entidad CURSO: {entity_name}")
             df_entidad = df_global[df_global[curso_col] == entity_name]
             data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
+        elif amb_level:
+            policy = current_app.config.get('COURSE_AMBIGUITY_POLICY', 'ask')
+            default_parallel = _normalize_text(current_app.config.get('DEFAULT_PARALLEL', 'A'))
+            chosen = None
+            if policy == 'default':
+                # Elegir curso cuyo último token (paralelo) coincide con DEFAULT_PARALLEL
+                for c in candidates:
+                    toks = _normalize_text(c).split()
+                    if toks and len(toks[-1]) == 1 and toks[-1].isalpha() and toks[-1] == default_parallel.lower():
+                        chosen = c
+                        break
+            if chosen:
+                entity_type = 'curso'
+                entity_name = chosen
+                current_app.logger.info(f"Ambigüedad resuelta por política DEFAULT: {entity_name}")
+                df_entidad = df_global[df_global[curso_col] == entity_name]
+                data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
+            else:
+                # Construir mensaje de ambigüedad para guiar al usuario
+                letters = []
+                for c in candidates:
+                    toks = _normalize_text(c).split()
+                    if toks and len(toks[-1]) == 1 and toks[-1].isalpha():
+                        letters.append(toks[-1].upper())
+                unique_letters = sorted(set(letters))
+                ambiguity_message = (
+                    f"Ambigüedad detectada: el nivel '{amb_level}' tiene varios paralelos disponibles: "
+                    f"{', '.join(unique_letters)}. Por favor, especifica la letra (p. ej., '{amb_level} {unique_letters[0]}')."
+                )
+                current_app.logger.info(ambiguity_message)
+
+                # NUEVO: Aunque haya ambigüedad, proveer datos CSV filtrados al nivel (todos los paralelos)
+                try:
+                    df_nivel = df_global[df_global[curso_col].astype(str).str.contains(str(amb_level), case=False, na=False)]
+                    if not df_nivel.empty:
+                        data_string = load_data_as_string(file_path, specific_entity_df=df_nivel)
+                        current_app.logger.info(f"Contexto CSV adjuntado para nivel ambiguo: {amb_level} (total filas: {len(df_nivel)})")
+                except Exception as e:
+                    current_app.logger.error(f"Error al adjuntar CSV por nivel ambiguo {amb_level}: {e}")
             
     # --- INICIO: NUEVA LÓGICA DE RESUMEN CUALITATIVO (Comportamiento) ---
     qualitative_history_summary = ""
     # Solo se activa si detectamos un ALUMNO y palabras clave cualitativas
-    if entity_type == 'alumno' and entity_name and any(kw in prompt_lower for kw in QUALITATIVE_KEYWORDS):
+    if entity_type == 'alumno' and entity_name and any_keyword_in_prompt(user_prompt, get_qualitative_keywords()) and current_app.config.get('ENABLE_QUALITATIVE_SUMMARY', True):
         try:
-            print(f"Detectada intención de evolución CUALITATIVA (Avanzado) para: {entity_name}")
+            current_app.logger.info(f"Detectada intención de evolución CUALITATIVA (Avanzado) para: {entity_name}")
             db_path = current_app.config['DATABASE_FILE']
             qualitative_history_summary = get_student_qualitative_history(
                 db_path, 
                 student_name=entity_name
             )
         except Exception as e:
-            print(f"Error al obtener resumen de evolución cualitativa (Avanzado) para {entity_name}: {e}")
+            current_app.logger.error(f"Error al obtener resumen de evolución cualitativa (Avanzado) para {entity_name}: {e}")
             qualitative_history_summary = f"Error al consultar historial cualitativo: {e}"
+    elif entity_type == 'curso' and entity_name and any_keyword_in_prompt(user_prompt, get_qualitative_keywords()) and current_app.config.get('ENABLE_QUALITATIVE_SUMMARY', True):
+        try:
+            current_app.logger.info(f"Detectada intención de resumen CUALITATIVO agregado (Avanzado) para curso: {entity_name}")
+            db_path = current_app.config['DATABASE_FILE']
+            qualitative_history_summary = get_course_qualitative_summary(
+                db_path,
+                course_name=entity_name,
+                max_entries=current_app.config.get('MAX_QUALITATIVE_ENTRIES', 30)
+            )
+        except Exception as e:
+            current_app.logger.error(f"Error al obtener resumen cualitativo por curso (Avanzado) {entity_name}: {e}")
+            qualitative_history_summary = f"Error al consultar resumen cualitativo del curso: {e}"
+
+    # Evolución de asistencia específica por alumno
+    if entity_type == 'alumno' and entity_name and any_keyword_in_prompt(user_prompt, get_attendance_keywords()) and current_app.config.get('ENABLE_ATTENDANCE_SUMMARY', True):
+        try:
+            current_app.logger.info(f"Detectada intención de ASISTENCIA (Avanzado) para alumno: {entity_name}")
+            db_path = current_app.config['DATABASE_FILE']
+            order_dir_att = 'ASC' if any_keyword_in_prompt(user_prompt, get_negative_evolution_keywords()) else 'DESC'
+            attendance_summary = get_attendance_evolution_summary(
+                db_path,
+                entity_name=entity_name,
+                order_direction=order_dir_att
+            )
+            historical_data_summary = (historical_data_summary + "\n\n" + attendance_summary).strip()
+        except Exception as e:
+            current_app.logger.error(f"Error al obtener resumen de asistencia (Avanzado) para {entity_name}: {e}")
+            historical_data_summary = (historical_data_summary + f"\n\nError asistencia: {e}").strip()
+
+    # Adjuntar documentos clave recientes al bloque cualitativo
+    include_docs = current_app.config.get('INCLUDE_KEY_DOCS_IN_PROMPT', True)
+    key_docs_block = _build_key_docs_block(entity_type, entity_name, file_path) if include_docs and entity_type and entity_name else ""
+    if key_docs_block:
+        qualitative_history_summary = (qualitative_history_summary + key_docs_block).strip()
+    # Mensaje de ambigüedad (si existe) se adjunta al bloque cualitativo
+    if ambiguity_message:
+        qualitative_history_summary = (qualitative_history_summary + ("\n\n" if qualitative_history_summary else "") + ambiguity_message).strip()
     # --- FIN: NUEVA LÓGICA ---
 
-    # --- Lógica de Contexto General (no cambia) ---
-    if not data_string and not historical_data_summary and not qualitative_history_summary: # Si no hay entidad Y no es consulta de evolución
-        print("DEBUG: Chat Avanzado detectó consulta GENERAL. Usando resumen del dashboard.")
-        file_summary = session.get('file_summary', {})
-        import json
-        data_string = "Contexto: A continuación se presenta un resumen estadístico general del colegio, no el listado completo de alumnos.\n\n"
-        data_string += json.dumps(file_summary, indent=2, ensure_ascii=False)
-    elif not data_string and (historical_data_summary or qualitative_history_summary):
-        print("DEBUG: Chat Avanzado detectó consulta de EVOLUCIÓN (cuanti o cuali). No se pasarán datos del CSV actual.")
-        data_string = "Contexto: La consulta es sobre evolución histórica. No se proporcionan datos del CSV actual, ya que los resúmenes de evolución se adjuntan por separado."
+    # --- Lógica de Contexto General (ACTUALIZADA: siempre adjuntar CSV) ---
+    # Si aún no se ha construido data_string por detección de entidad o nivel, adjuntar el CSV completo.
+    if not data_string:
+        try:
+            data_string = load_data_as_string(file_path)
+            current_app.logger.info("Chat Avanzado (general): CSV completo adjuntado como contexto principal.")
+        except Exception as e:
+            current_app.logger.error(f"Error al cargar CSV para contexto general: {e}")
+            data_string = f"Error al cargar CSV para contexto general: {e}"
     
     history_list = session.get('advanced_chat_history', [])
     history_fmt = format_chat_history_for_prompt(history_list)
@@ -833,7 +1228,7 @@ def api_submit_advanced_chat():
         analysis_result['consumo_sesion'] = session['consumo_sesion']
         session.modified = True
 
-    return jsonify(analysis_result)
+        return jsonify(analysis_result)
 
 @main_bp.route('/api/add_advanced_chat_follow_up', methods=['POST'])
 def api_add_advanced_chat_follow_up(): 
@@ -1323,7 +1718,9 @@ def biblioteca_reportes():
     return render_template('biblioteca.html',
                            page_title=page_title, # Pasa el título dinámico
                            reportes=reportes,
-                           filename=current_filename)
+                           filename=current_filename,
+                           tipo_entidad=search_tipo,
+                           nombre_entidad=search_nombre)
 
 @main_bp.route('/reporte_360/ver/<int:reporte_id>')
 def ver_reporte_360(reporte_id):

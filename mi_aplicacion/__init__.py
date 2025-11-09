@@ -3,6 +3,7 @@ import os
 import datetime
 import sys
 from flask import Flask
+import logging
 # INICIO: NUEVAS IMPORTACIONES
 from flask_session import Session # Importar la extensión
 from werkzeug.utils import secure_filename # Necesario para la ruta de sesión
@@ -72,6 +73,16 @@ def create_app(config_name='dev'):
     print(f"UPLOAD_FOLDER configurado en: {app.config['UPLOAD_FOLDER']}")
     print(f"CONTEXT_DOCS_FOLDER configurado en: {app.config['CONTEXT_DOCS_FOLDER']}")
 
+    # Configurar logging según configuración
+    level_name = str(app.config.get('LOG_LEVEL', 'INFO')).upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s %(levelname)s [%(name)s] %(message)s'
+    )
+    app.logger.setLevel(level)
+    app.logger.info(f"Nivel de logging establecido en {level_name}")
+
     init_sqlite_db(app.config['DATABASE_FILE'])
 
     with app.app_context():
@@ -85,5 +96,5 @@ def create_app(config_name='dev'):
     def inject_current_year():
         return {'current_year': datetime.datetime.now().year}
 
-    print("Aplicación Flask creada y configurada con sesiones del lado del servidor.")
+    app.logger.info("Aplicación Flask creada y configurada con sesiones del lado del servidor.")
     return app

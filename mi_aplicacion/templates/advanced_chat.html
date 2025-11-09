@@ -238,13 +238,25 @@
                     headers: { 'Content-Type': 'application/json', },
                     body: JSON.stringify({ prompt: userPrompt }),
                 })
-                .then(response => {
+                .then(async (response) => {
                     sendAdvancedChatButton.disabled = false;
                     sendAdvancedChatButton.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
-                    if (!response.ok) {
-                        return response.json().then(err => { throw new Error(err.error || `Error del servidor: ${response.status}`) });
+                    const raw = await response.text();
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(raw);
+                    } catch (e) {
+                        if (!response.ok) {
+                            throw new Error(`Error del servidor (${response.status}).`);
+                        }
+                        // Cuerpo no JSON con 200 -> tratar como error controlado
+                        return { error: 'Respuesta inesperada del servidor.' };
                     }
-                    return response.json();
+                    if (!response.ok) {
+                        const msg = (parsed && parsed.error) ? parsed.error : `Error del servidor (${response.status}).`;
+                        throw new Error(msg);
+                    }
+                    return parsed;
                 })
                 .then(data => {
                     if (data.error) { throw new Error(data.error); }
