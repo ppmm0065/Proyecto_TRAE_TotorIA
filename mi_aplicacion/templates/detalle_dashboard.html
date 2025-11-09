@@ -136,28 +136,26 @@
     {% elif datos_dashboard %}
         <div id="data-visualization-section" class="mb-8 space-y-8">
             <div class="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
-                <h2 class="text-xl font-semibold text-slate-800 mb-6 text-center">Visualización de Datos</h2>
-                
-                {# Sección de Resumen de Métricas #}
+                {# Sección de Resumen de Métricas (título principal) #}
                 <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-slate-700 mb-6 text-center">Resumen de Métricas</h3>
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6 text-center">Resumen de Métricas</h2>
                 {% if tipo_entidad == 'alumno' and datos_dashboard.info_general %}
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {# Tarjetas de métricas con fondo blanco y sombras #}
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
-                            <p class="text-xs font-medium text-blue-600 uppercase mb-1">Promedio</p>
+                            <p class="text-xs font-medium text-slate-600 uppercase mb-1">Promedio</p>
                             <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Promedio }}</p>
                         </div>
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
-                            <p class="text-xs font-medium text-purple-600 uppercase mb-1">Curso</p>
+                            <p class="text-xs font-medium text-slate-600 uppercase mb-1">Curso</p>
                             <p class="text-2xl font-bold text-slate-800">{{ datos_dashboard.info_general.Curso }}</p>
                         </div>
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
-                            <p class="text-xs font-medium text-green-600 uppercase mb-1">Edad</p>
+                            <p class="text-xs font-medium text-slate-600 uppercase mb-1">Edad</p>
                             <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Edad }}</p>
                         </div>
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
-                            <p class="text-xs font-medium text-orange-600 uppercase mb-1">Peor Asignatura</p>
+                            <p class="text-xs font-medium text-slate-600 uppercase mb-1">Peor Asignatura</p>
                             <p class="text-lg font-bold text-slate-800 text-center">{{ datos_dashboard.info_general.AsignaturaMenorPromedio }}</p>
                         </div>
                     </div>
@@ -219,76 +217,7 @@
             </div>
              {# --- FIN: MODIFICACIÓN Tarjeta de Gráficos --- #}
 
-            {# --- SECCIÓN: Historial de Reportes 360 y Planes de Intervención --- #}
-            <div id="historial-seguimientos" class="mt-6">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {# Tarjeta: Historial de Reportes 360 #}
-                    <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-lg font-semibold text-slate-800">
-                                <i class="fas fa-file-alt mr-2 text-purple-500"></i>
-                                Historial de Reportes 360
-                            </h3>
-                            <span class="text-sm text-slate-600">Total: {{ historial_reportes_360_con_observaciones|length }}</span>
-                        </div>
-                        {% if historial_reportes_360_con_observaciones and historial_reportes_360_con_observaciones|length > 0 %}
-                            {% for rep in historial_reportes_360_con_observaciones %}
-                                <div class="history-item-container">
-                                    <div class="text-xs text-slate-500 mb-2">
-                                        <i class="far fa-calendar-alt mr-1"></i>
-                                        {{ rep.timestamp_formateado or rep.timestamp }}
-                                    </div>
-                                    <div class="history-item-content prose prose-sm max-w-none">
-                                        {{ rep.reporte_html | safe }}
-                                    </div>
-                                    {% if rep.observaciones and rep.observaciones|length > 0 %}
-                                        <div class="mt-2 text-sm text-slate-700">
-                                            Observaciones ({{ rep.observaciones|length }})
-                                        </div>
-                                        <div class="space-y-2">
-                                            {% for obs in rep.observaciones %}
-                                                <div class="observation-list-item text-xs text-slate-600">
-                                                    <i class="far fa-comment-dots mr-1"></i>
-                                                    {{ obs.timestamp }} — {{ obs.observacion_html | safe }}
-                                                </div>
-                                            {% endfor %}
-                                        </div>
-                                    {% endif %}
-                                </div>
-                            {% endfor %}
-                        {% else %}
-                            <p class="text-slate-500 italic">Aún no hay reportes 360 históricos para esta entidad.</p>
-                        {% endif %}
-                    </div>
-
-                    {# Tarjeta: Historial de Planes de Intervención #}
-                    <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-lg font-semibold text-slate-800">
-                                <i class="fas fa-clipboard-check mr-2 text-orange-500"></i>
-                                Historial de Planes de Intervención
-                            </h3>
-                            <span class="text-sm text-slate-600">Total: {{ historial_planes_intervencion|length }}</span>
-                        </div>
-                        {% if historial_planes_intervencion and historial_planes_intervencion|length > 0 %}
-                            {% for plan in historial_planes_intervencion %}
-                                <div class="history-item-container">
-                                    <div class="text-xs text-slate-500 mb-2">
-                                        <i class="far fa-calendar-alt mr-1"></i>
-                                        {{ plan.timestamp }}
-                                    </div>
-                                    <div class="history-item-content prose prose-sm max-w-none">
-                                        {{ plan.plan_html | safe }}
-                                    </div>
-                                </div>
-                            {% endfor %}
-                        {% else %}
-                            <p class="text-slate-500 italic">Aún no hay planes de intervención históricos para esta entidad.</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            {# --- FIN: SECCIÓN de Historial --- #}
+            {# --- SECCIÓN de Historial eliminada (duplicada en Biblioteca) --- #}
         </div>
 
         {# --- SECCIÓN DE CHAT CON GEMINI (DETALLE) --- #}

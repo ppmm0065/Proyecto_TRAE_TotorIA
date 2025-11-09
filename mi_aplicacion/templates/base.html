@@ -183,6 +183,14 @@
             border-left-color: var(--color-indigo);
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
         }
+
+        /* Ajustes para items dentro de submenús */
+        .submenu .menu-item {
+            border-radius: 10px;
+        }
+        .submenu .menu-item.active {
+            border-left-width: 5px;
+        }
         
         .menu-item i.fa-fw {
             width: 1.25rem;
@@ -313,7 +321,7 @@
                         <li class="submenu">
                             <ul>
                                 <li>
-                                    <button id="open-entity-selector-btn" class="menu-item w-full text-left menu-item-action active">
+                                    <button id="open-entity-selector-btn" class="menu-item w-full text-left menu-item-action">
                                         <i class="fas fa-search fa-fw"></i> Buscar Alumno / Curso
                                     </button>
                                 </li>
