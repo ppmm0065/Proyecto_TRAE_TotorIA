@@ -459,7 +459,14 @@
                         /a\s+continuación/i,
                         /con\s+el\s+objetivo\s+de/i,
                         /con\s+el\s+fin\s+de/i,
-                        /basad[oa]\s+en/i
+                        /basad[oa]\s+en/i,
+                        /bas[áa]ndonos?\s+en/i,
+                        /en\s+base\s+a/i,
+                        /a\s+partir\s+de/i,
+                        /con\s+base\s+en/i,
+                        /se\s+identifican/i,
+                        /se\s+presentan/i,
+                        /se\s+exponen/i
                     ];
                     return introPatterns.some(rx => rx.test(s));
                 };

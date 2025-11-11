@@ -34,7 +34,7 @@
 
         {# --- INICIO: MODIFICACIÓN KPIs --- #}
         {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' y mantenido 'shadow-sm' #}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-6 mb-8">
             <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-blue-500">
                 <div class="flex justify-between items-start">
                     <div>
@@ -43,17 +43,6 @@
                     </div>
                     <div class="bg-blue-100 text-blue-600 rounded-lg p-2">
                         <i class="fa-solid fa-users text-xl"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-green-500">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes Activos</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
-                    </div>
-                    <div class="bg-green-100 text-green-600 rounded-lg p-2">
-                        <i class="fa-solid fa-user-check text-xl"></i>
                     </div>
                 </div>
             </div>
@@ -87,17 +76,6 @@
                     </div>
                      <div class="bg-red-100 text-red-600 rounded-lg p-2">
                         <i class="fa-solid fa-triangle-exclamation text-xl"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-orange-500">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="text-sm font-medium text-slate-500 uppercase">Niveles Activos</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.niveles_activos }}</p>
-                    </div>
-                     <div class="bg-orange-100 text-orange-600 rounded-lg p-2">
-                        <i class="fa-solid fa-layer-group text-xl"></i>
                     </div>
                 </div>
             </div>
