@@ -32,13 +32,13 @@
             background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
             color: white;
             font-weight: 600;
-            padding: 0.75rem 1.5rem;
-            border-radius: 12px;
+            padding: 0.6rem 1.2rem; /* Compacta el botón para ganar espacio */
+            border-radius: 10px;
             transition: all 0.3s ease;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.4rem;
             white-space: nowrap;
         }
 
@@ -96,10 +96,11 @@
             width: 280px;
             height: calc(100vh - 5rem);
             background: linear-gradient(to bottom, white, var(--color-slate-50));
+            font-size: 0.95rem; /* Reduce tamaño de fuente del menú */
         }
         
         .menu-header {
-            padding: 1.25rem;
+            padding: 1rem; /* Compacta el encabezado del menú */
             border-bottom: 1px solid var(--color-slate-200);
             background-color: white;
             position: relative;
@@ -119,7 +120,7 @@
         .menu-item {
             display: flex;
             align-items: center;
-            padding: 0.9rem 1.25rem;
+            padding: 0.7rem 1rem; /* Reduce padding para mayor densidad */
             color: var(--color-slate-600);
             font-weight: 500;
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -142,7 +143,7 @@
         .menu-item-disabled {
             display: flex;
             align-items: center;
-            padding: 0.9rem 1.25rem;
+            padding: 0.7rem 1rem; /* Reduce padding para mayor densidad */
             color: var(--color-slate-400);
             cursor: not-allowed;
             opacity: 0.8;
@@ -193,8 +194,8 @@
         }
         
         .menu-item i.fa-fw {
-            width: 1.25rem;
-            margin-right: 0.75rem;
+            width: 1.15rem; /* Iconos ligeramente más pequeños */
+            margin-right: 0.6rem; /* Menor separación del texto */
             color: var(--color-indigo);
             transition: transform 0.2s ease;
         }
@@ -204,8 +205,8 @@
         }
         
         .menu-section-title {
-            padding: 1.5rem 1.25rem 0.5rem;
-            font-size: 0.75rem;
+            padding: 1rem 1rem 0.25rem; /* Compacta el espaciado superior */
+            font-size: 0.70rem; /* Reduce el tamaño del título de sección */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: var(--color-slate-700);
@@ -219,8 +220,8 @@
             position: relative;
             background: linear-gradient(to right, var(--color-indigo-light), white);
             border-radius: 10px;
-            margin: 1rem 0.75rem;
-            padding: 0.5rem 0.5rem 0.75rem 0.75rem;
+            margin: 0.75rem 0.5rem; /* Reduce márgenes */
+            padding: 0.4rem 0.4rem 0.6rem 0.6rem; /* Reduce padding */
             box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .submenu::before {
@@ -234,8 +235,8 @@
             background: var(--color-indigo);
         }
         .submenu-title {
-            padding: 0.5rem 0.25rem 0.75rem 0.25rem;
-            font-size: 0.8rem;
+            padding: 0.4rem 0.25rem 0.6rem 0.25rem; /* Compacta */
+            font-size: 0.72rem; /* Reduce tamaño del subtítulo */
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--color-indigo);
@@ -298,7 +299,7 @@
                                     {{ session.uploaded_filename }}
                                 </span>
                             </div>
-                            <a href="{{ url_for('main.clear_session_file') }}" class="clear-btn text-2xl font-light ml-2 flex-shrink-0 text-slate-400" title="Limpiar y Cargar Nuevo">
+                            <a href="{{ url_for('main.clear_session_file') }}" class="clear-btn text-xl font-light ml-2 flex-shrink-0 text-slate-400" title="Limpiar y Cargar Nuevo">
                                 &times;
                             </a>
                         </div>
@@ -399,7 +400,7 @@
         {# --- FIN: MODIFICACIÓN ESTRUCTURA Y CLASES DEL MENÚ --- #}
         
         {# Panel central con fondo blanco (sin cambios) #}
-        <section id="panel_center" class="flex-grow bg-white p-6 custom-scrollbar">
+        <section id="panel_center" class="flex-grow bg-white p-4 custom-scrollbar">
             {% block panel_center_content %}{% endblock %}
         </section>
 

@@ -1023,8 +1023,13 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
 
             if not error_message and not raw_response_text: error_message = "La respuesta de Gemini estaba vacía."
             
-            if not error_message: 
-                html_output = markdown.markdown(raw_response_text, extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
+            if not error_message:
+                # Ajuste: evitar 'nl2br' para planes de intervención (provocaba saltos de línea no deseados y mala justificación)
+                md_extensions = ['fenced_code', 'tables', 'sane_lists']
+                if not is_plan_intervencion:
+                    # En respuestas generales y reportes 360, mantener nl2br para respetar saltos simples
+                    md_extensions.append('nl2br')
+                html_output = markdown.markdown(raw_response_text, extensions=md_extensions)
         
         if error_message: 
             print(f"Error en Gemini: {error_message}")
@@ -1971,8 +1976,13 @@ def get_intervention_plans_for_entity(db_path, tipo_entidad, nombre_entidad, cur
             cursor.execute("SELECT id, timestamp, follow_up_comment FROM follow_ups WHERE follow_up_type = 'intervention_plan' AND related_entity_type = ? AND related_entity_name = ? AND related_filename = ? ORDER BY timestamp DESC",
                            (tipo_entidad, nombre_entidad, current_filename))
             for row in cursor.fetchall():
-                plans.append({"id": row["id"], "timestamp": datetime.datetime.strptime(row["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M'),
-                              "plan_markdown": row["follow_up_comment"], "plan_html": markdown.markdown(row["follow_up_comment"], extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])})
+                plans.append({
+                    "id": row["id"],
+                    "timestamp": datetime.datetime.strptime(row["timestamp"], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M'),
+                    "plan_markdown": row["follow_up_comment"],
+                    # Importante: sin 'nl2br' para que el texto del plan se justifique correctamente sin saltos forzados
+                    "plan_html": markdown.markdown(row["follow_up_comment"], extensions=['fenced_code', 'tables', 'sane_lists'])
+                })
     except Exception as e: print(f"Error recuperando planes: {e}"); traceback.print_exc()
     return plans
 

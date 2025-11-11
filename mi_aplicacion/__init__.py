@@ -91,6 +91,12 @@ def create_app(config_name='dev'):
     with app.app_context():
         from . import routes
         app.register_blueprint(routes.main_bp)
+        # Registrar filtros Jinja personalizados
+        try:
+            from .filters import nota_un_decimal
+            app.jinja_env.filters['nota_un_decimal'] = nota_un_decimal
+        except Exception as e:
+            app.logger.warning(f"No se pudieron registrar los filtros Jinja personalizados: {e}")
 
     @app.context_processor
     def inject_current_year():

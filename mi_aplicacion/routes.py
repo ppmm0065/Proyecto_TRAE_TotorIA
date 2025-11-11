@@ -826,11 +826,19 @@ def detalle_entidad(tipo_entidad, valor_codificado):
                 peor_asignatura_key = promedios_asignaturas_alumno.idxmin()
                 peor_asignatura_nota = promedios_asignaturas_alumno.min()
                 
+                # Formateo de presentación para peor asignatura del alumno (1 decimal, coma)
+                try:
+                    from .filters import nota_un_decimal
+                    peor_asignatura_presentacion = f"{peor_asignatura_key} ({nota_un_decimal(peor_asignatura_nota)})"
+                except Exception:
+                    # Fallback si el filtro no está disponible
+                    peor_asignatura_presentacion = f"{peor_asignatura_key} ({peor_asignatura_nota:.1f})"
+
                 context['datos_dashboard']['info_general'] = {
                     'Promedio': f"{alumno_promedio_general:.2f}",
                     'Curso': nombre_curso_alumno,
                     'Edad': alumno_data_row.get(current_app.config.get('EDAD_COL'), 'N/A'),
-                    'AsignaturaMenorPromedio': f"{peor_asignatura_key} ({peor_asignatura_nota:.1f})"
+                    'AsignaturaMenorPromedio': peor_asignatura_presentacion
                 }
                 
                 # Gráfico de calificaciones individuales del alumno
@@ -853,10 +861,17 @@ def detalle_entidad(tipo_entidad, valor_codificado):
                 
                 alumno_peor_promedio = df_alumnos_unicos_curso.loc[df_alumnos_unicos_curso[promedio_col].idxmin()]
 
+                # Formateo de presentación para peor asignatura del curso (1 decimal, coma)
+                try:
+                    from .filters import nota_un_decimal
+                    peor_asignatura_curso_presentacion = f"{peor_asignatura} ({nota_un_decimal(peor_asignatura_prom)})"
+                except Exception:
+                    peor_asignatura_curso_presentacion = f"{peor_asignatura} ({peor_asignatura_prom:.1f})"
+
                 context['datos_dashboard']['info_general'] = {
                     'NumeroAlumnos': len(df_alumnos_unicos_curso),
                     'PromedioGeneralCurso': f"{promedio_general_curso:.2f}",
-                    'PeorAsignatura': f"{peor_asignatura} ({peor_asignatura_prom:.2f})",
+                    'PeorAsignatura': peor_asignatura_curso_presentacion,
                     'AlumnoPeorPromedioNombre': alumno_peor_promedio[nombre_col],
                     'AlumnoPeorPromedioValor': f"{alumno_peor_promedio[promedio_col]:.2f}"
                 }

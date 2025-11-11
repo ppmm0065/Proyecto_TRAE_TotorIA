@@ -16,7 +16,7 @@
     {% if session.file_summary %}
         <div class="flex items-center justify-between mb-8 gap-4">
             <div class="flex-grow">
-                <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Dashboard Académico Escolar</h1>
+                <h1 class="text-xl md:text-2xl font-bold text-slate-800">Dashboard Académico Escolar</h1>
                 <div class="flex items-center gap-4 mt-2">
                     <p class="text-lg text-slate-600">Sistema de gestión y seguimiento de estudiantes</p>
                     <a href="{{ url_for('main.chat_avanzado') }}" class="ai-consultation-button group inline-flex items-center">
@@ -39,7 +39,7 @@
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Total Estudiantes</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
                     </div>
                     <div class="bg-blue-100 text-blue-600 rounded-lg p-2">
                         <i class="fa-solid fa-users text-xl"></i>
@@ -50,7 +50,7 @@
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Promedio General</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ "%.1f" | format(session.file_summary.get('promedio_general')) if session.file_summary.get('promedio_general') != "N/A" else "N/A" }}</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.get('promedio_general') | nota_un_decimal if session.file_summary.get('promedio_general') != "N/A" else "N/A" }}</p>
                     </div>
                     <div class="bg-purple-100 text-purple-600 rounded-lg p-2">
                         <i class="fa-solid fa-arrow-trend-up text-xl"></i>
@@ -61,7 +61,7 @@
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Asistencia Promedio</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ "%.0f" | format(session.file_summary.asistencia_promedio_global * 100) }}%</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ "%.0f" | format(session.file_summary.asistencia_promedio_global * 100) }}%</p>
                     </div>
                      <div class="bg-cyan-100 text-cyan-600 rounded-lg p-2">
                         <i class="fa-solid fa-calendar-check text-xl"></i>
@@ -72,7 +72,7 @@
                  <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes en Riesgo</h3>
-                        <p class="text-4xl font-bold text-slate-800 mt-2">{{ session.file_summary.estudiantes_en_riesgo }}</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.estudiantes_en_riesgo }}</p>
                     </div>
                      <div class="bg-red-100 text-red-600 rounded-lg p-2">
                         <i class="fa-solid fa-triangle-exclamation text-xl"></i>
@@ -116,7 +116,7 @@
                                 {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                                     <p class="text-lg font-semibold text-red-900">{{ session.file_summary.alumno_menor_promedio.nombre }}</p>
                                     <p class="text-sm text-red-700">
-                                        Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | round(2) if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}
+                                        Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | nota_un_decimal if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}
                                     </p>
                                 {% else %}
                                     <p class="text-sm text-red-700 italic">No disponible.</p>
@@ -139,7 +139,7 @@
                                 {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                                     <p class="text-lg font-semibold text-orange-900">{{ session.file_summary.curso_menor_promedio.nombre }}</p>
                                     <p class="text-sm text-orange-700">
-                                        Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | round(2) if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}
+                                        Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | nota_un_decimal if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}
                                     </p>
                                 {% else %}
                                      <p class="text-sm text-orange-700 italic">No disponible.</p>
@@ -207,15 +207,15 @@
                         <tr>
                             <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ nivel }}</td>
                             <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.total_alumnos }}</td>
-                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.promedio_general_notas }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.promedio_general_notas | nota_un_decimal }}</td>
                             {% if session.file_summary.asistencia_data_available %}
                             <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.asistencia_promedio }}</td>
                             {% endif %}
                             <td class="px-4 py-3 whitespace-nowrap text-slate-700">
-                                {{ data.curso_menor_promedio.nombre }} ({{ data.curso_menor_promedio.promedio }})
+                                {{ data.curso_menor_promedio.nombre }} ({{ data.curso_menor_promedio.promedio | nota_un_decimal }})
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap text-slate-700">
-                                {{ data.curso_mayor_promedio.nombre }} ({{ data.curso_mayor_promedio.promedio }})
+                                {{ data.curso_mayor_promedio.nombre }} ({{ data.curso_mayor_promedio.promedio | nota_un_decimal }})
                             </td>
                         </tr>
                         {% else %}
@@ -294,15 +294,15 @@
             </p>
         </div>
         <div class="text-center mb-8">
-             <a href="{{ url_for('main.chat_avanzado') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-8 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
+             <a href="{{ url_for('main.chat_avanzado') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg text-base transition duration-300 ease-in-out shadow-md hover:shadow-lg transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 inline-flex items-center">
                 <i class="fas fa-comments mr-2"></i> Ir a Análisis Avanzado con Gemini
             </a>
         </div>
     {% else %}
         <div class="text-center flex flex-col items-center justify-center h-full">
             <img src="{{ url_for('static', filename='images/logo1.png') }}" alt="Logo TutorIA360" class="h-24 w-auto mb-6 opacity-80" onerror="this.style.display='none'">
-            <h1 class="text-3xl font-bold text-slate-800 mb-4">Bienvenido a TutorIA360 Dashboard</h1>
-            <p class="text-lg text-slate-600 mb-8 max-w-xl">Comienza por cargar un archivo CSV.</p>
+            <h1 class="text-2xl font-bold text-slate-800 mb-4">Bienvenido a TutorIA360 Dashboard</h1>
+            <p class="text-base text-slate-600 mb-8 max-w-xl">Comienza por cargar un archivo CSV.</p>
             {# Esta tarjeta ya era 'bg-slate-50', así que se mantiene perfecta #}
             <div class="bg-slate-50 p-6 rounded-lg border border-slate-200 max-w-md">
                 <h2 class="text-xl font-semibold text-slate-700 mb-3">¿Cómo Empezar?</h2>
@@ -326,6 +326,21 @@
     document.addEventListener('DOMContentLoaded', function() {
         if (!{{ session.file_summary is not none | tojson }}) {
             return; 
+        }
+
+        // Helper de presentación: nota a 1 decimal, redondeo hacia arriba en .5 y coma como separador
+        function formatNota(n) {
+            if (n === null || n === undefined) return 'N/A';
+            if (typeof n === 'string') {
+                const trimmed = n.trim();
+                if (trimmed.toUpperCase() === 'N/A') return 'N/A';
+                // Permitir coma en entrada
+                n = trimmed.replace(',', '.');
+            }
+            const num = Number(n);
+            if (Number.isNaN(num)) return String(n);
+            const rounded = Math.round(num * 10) / 10; // half-up
+            return rounded.toFixed(1).replace('.', ',');
         }
 
         // --- INICIO: NUEVA CONFIGURACIÓN DE GRÁFICOS ---
@@ -491,7 +506,7 @@
                                 const alumnoLi = document.createElement('li');
                                 let alumnoText = `${alumno.nombre} (${alumno.curso_original})`;
                                 if (alertType === 'promedio') {
-                                    alumnoText += ` - Prom: ${alumno.promedio}`;
+                                    alumnoText += ` - Prom: ${formatNota(alumno.promedio)}`;
                                 } else if (alertType === 'observaciones') {
                                     alumnoText += `: <span class="italic">"${alumno.observacion}"</span>`;
                                 }

@@ -76,6 +76,33 @@
     .ia-plan-content ul > li > ul > li strong {
         color: #4f46e5; /* indigo-600 */
     }
+
+    /* Justificación del texto del plan de intervención (párrafos y descripciones) */
+    .ia-plan-content p {
+        text-align: justify;
+        text-justify: inter-word;
+        hyphens: auto;
+    }
+    /* Objetivos enumerados: justificar el contenido dentro del bloque */
+    .ia-plan-content ol > li {
+        text-align: justify;
+        text-justify: inter-word;
+        hyphens: auto;
+    }
+    /* Dentro de cada estrategia, justificar únicamente las líneas de Acción y Fundamentación, evitando afectar los títulos */
+    .ia-plan-content ul > li > ul > li {
+        text-align: justify;
+        text-justify: inter-word;
+        hyphens: auto;
+    }
+    /* Unificar párrafos consecutivos dentro de cada item (evita saltos artificiales en Fundamentación) */
+    .ia-plan-content ul > li > ul > li p {
+        display: inline;
+        margin: 0;
+    }
+    .ia-plan-content ul > li > ul > li p + p::before {
+        content: " "; /* Inserta espacio entre párrafos unidos */
+    }
 </style>
 {% endblock %}
 
@@ -155,5 +182,25 @@
     {{ super() }}
     <script>
         console.log("Página de Visualización de Plan de Intervención cargada.");
+
+        // Normalización de saltos de línea en "Fundamentación:" generados por markdown con nl2br en planes antiguos
+        (function(){
+            const items = document.querySelectorAll('.ia-plan-content ul > li > ul > li');
+            items.forEach(li => {
+                const title = li.querySelector('strong');
+                if (title && /Fundamentación\s*:/i.test(title.textContent)) {
+                    // Reemplaza <br> por espacios para permitir justificación correcta
+                    li.querySelectorAll('br').forEach(br => {
+                        br.replaceWith(document.createTextNode(' '));
+                    });
+                    // Colapsa espacios múltiples en nodos de texto directos
+                    li.childNodes.forEach(n => {
+                        if (n.nodeType === Node.TEXT_NODE) {
+                            n.textContent = n.textContent.replace(/\s+/g, ' ');
+                        }
+                    });
+                }
+            });
+        })();
     </script>
 {% endblock scripts %}

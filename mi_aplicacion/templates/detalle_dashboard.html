@@ -182,7 +182,7 @@
                         {# Tarjetas de métricas con fondo blanco y sombras #}
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
                             <p class="text-xs font-medium text-slate-600 uppercase mb-1">Promedio</p>
-                            <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Promedio }}</p>
+                            <p class="text-3xl font-bold text-slate-800">{{ datos_dashboard.info_general.Promedio | nota_un_decimal }}</p>
                         </div>
                         <div class="bg-white p-4 rounded-lg shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300 flex flex-col items-center justify-center">
                             <p class="text-xs font-medium text-slate-600 uppercase mb-1">Curso</p>
@@ -200,10 +200,10 @@
                 {% elif tipo_entidad == 'curso' and datos_dashboard.info_general %}
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div class="bg-blue-50 p-3 rounded-lg border border-blue-200"><p class="text-xs text-blue-700 uppercase">Nº Alumnos</p><p class="text-2xl font-bold text-blue-900">{{ datos_dashboard.info_general.NumeroAlumnos }}</p></div>
-                        <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso }}</p></div>
+                        <div class="bg-purple-50 p-3 rounded-lg border border-purple-200"><p class="text-xs text-purple-700 uppercase">Prom. Curso</p><p class="text-2xl font-bold text-purple-900">{{ datos_dashboard.info_general.PromedioGeneralCurso | nota_un_decimal }}</p></div>
                         <div class="bg-green-50 p-3 rounded-lg border border-green-200"><p class="text-xs text-green-700 uppercase">Peor Asignatura</p><p class="text-lg font-bold text-green-900">{{ datos_dashboard.info_general.PeorAsignatura }}</p></div>
                         {% if datos_dashboard.info_general.AlumnoPeorPromedioNombre and datos_dashboard.info_general.AlumnoPeorPromedioNombre != 'N/A' %}
-                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor }})</p></a>
+                            <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=datos_dashboard.info_general.AlumnoPeorPromedioNombre) }}" class="bg-orange-50 p-3 rounded-lg border border-orange-200 hover:bg-orange-100 transition"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900 break-words">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }} ({{ datos_dashboard.info_general.AlumnoPeorPromedioValor | nota_un_decimal }})</p></a>
                         {% else %}
                             <div class="bg-orange-50 p-3 rounded-lg border border-orange-200"><p class="text-xs text-orange-700 uppercase">Alumno Menor Prom.</p><p class="text-base font-bold text-orange-900">{{ datos_dashboard.info_general.AlumnoPeorPromedioNombre }}</p></div>
                         {% endif %}
