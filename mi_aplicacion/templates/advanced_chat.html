@@ -324,9 +324,19 @@
                     /a\s+continuación/i,
                     /con\s+el\s+objetivo\s+de/i,
                     /con\s+el\s+fin\s+de/i,
-                    /basad[oa]\s+en/i
+                    /basad[oa]\s+en/i,
+                    /aqui\s+te\s+presento/i,
+                    /aqui\s+tienes/i,
+                    /te\s+presento/i,
+                    /presento\s+/i,
+                    /propongo\s+/i,
+                    /te\s+propongo\s+/i,
+                    /ofrezco\s+/i
                 ];
-                return introPatterns.some(rx => rx.test(s));
+                // Regla adicional: si contiene verbos de introducción y palabras como sugerencias/recomendaciones/apoyo, tratar como intro
+                const hasIntroVerb = /(presento|propongo|ofrezco|aqui\s+te\s+presento|aqui\s+tienes|te\s+presento|te\s+propongo)/i.test(s);
+                const hasSuggestWords = /(sugerencias|recomendaciones|apoyo)/i.test(s);
+                return introPatterns.some(rx => rx.test(s)) || (hasIntroVerb && hasSuggestWords);
             };
 
             root.querySelectorAll('h1, h2, h3, h4, p').forEach(el => {
@@ -341,7 +351,10 @@
                     const title = text.replace(/:\s*$/, '');
                     const marker = doc.createElement('div');
                     marker.className = 'insight-title';
-                    marker.innerHTML = `<span class="insight-badge">💡 Insight</span><span>${title}</span>`;
+                    // Evitar insertar el badge en títulos que parezcan introducción por falso positivo
+                    const isIntroFalsePositive = /(presento|propongo|ofrezco|aqui\s+te\s+presento|aqui\s+tienes|te\s+presento|te\s+propongo)/i.test(text) && /(sugerencias|recomendaciones|apoyo)/i.test(text);
+                    const badge = isIntroFalsePositive ? '' : `<span class="insight-badge">💡 Insight</span>`;
+                    marker.innerHTML = `${badge}<span>${title}</span>`;
                     el.replaceWith(marker);
                 }
             });

@@ -23,6 +23,8 @@ class Config:
     EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
     NUM_RELEVANT_CHUNKS = 7 # Aumentado para más contexto
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    # Zona horaria centralizada para conversiones de tiempo
+    TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Santiago')
 
 # --- INICIO: CONFIGURACIÓN DE TARIFAS DE MODELOS (NUEVO) ---
     # Estructura para almacenar las tarifas de los modelos de IA en USD por cada 1,000,000 de tokens.
@@ -179,10 +181,28 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
     FAMILIA_COL = 'Familia' 
     ENTREVISTAS_COL = 'Entrevistas'
 
-    NEGATIVE_OBSERVATION_KEYWORDS = [ 
-        "copia en la prueba", "es suspendido de clases", "golpea a un companero",
-        "golpea a una companera", "es agresivo", "ofende al profesor",
-        "ofende a sus companeros", "interrumpe en clases", "insulta" "agrede", "molesta"
+    # Palabras/expresiones clave para detectar observaciones de conducta NEGATIVAS en el CSV.
+    # Se usa coincidencia por subcadenas y posteriormente se normaliza (sin tildes) en app_logic.
+    # FIX: se corrige el error de coma faltante entre "insulta" y "agrede" y se amplían sinónimos comunes.
+    NEGATIVE_OBSERVATION_KEYWORDS = [
+        "copia en la prueba",
+        "es suspendido de clases",
+        "golpea a un companero",
+        "golpea a una companera",
+        "es agresivo",
+        "agresion",
+        "agresiones",
+        "ofende al profesor",
+        "ofende a sus companeros",
+        "interrumpe en clases",
+        "interrumpe la clase",
+        "interrumpe",
+        "insulta",
+        "agrede",
+        "molesta",
+        "falta de respeto",
+        "amonestacion",
+        "llamado de atencion"
     ]
     
     DEFAULT_ANALYSIS_PROMPT = "Realiza un analisis general de los datos y sugiere posibles areas de enfoque o intervencion." 

@@ -49,14 +49,25 @@ from .app_logic import (
     get_attendance_evolution_summary,
     get_student_qualitative_history,
     get_course_qualitative_summary,
-    get_observations_for_reporte_360
+    get_observations_for_reporte_360,
+    build_feature_store_from_csv,
+    build_feature_store_signals,
+    get_lowest_grade_student_for_subject
 )
+from .utils import normalize_text, grade_to_qualitative
 import sqlite3
 
 main_bp = Blueprint('main', __name__)
 
 # --- INICIO: DEFINICIÓN DE ZONA HORARIA ---
+# Mantener constante para compatibilidad, pero usar helper que lee config en tiempo de ejecución.
 SANTIAGO_TZ = timezone('America/Santiago')
+
+def _get_tz():
+    try:
+        return timezone(current_app.config.get('TIMEZONE_NAME', 'America/Santiago'))
+    except Exception:
+        return SANTIAGO_TZ
 # --- FIN: DEFINICIÓN DE ZONA HORARIA ---
 
 # --- Manejador global de errores para API: devuelve JSON en vez de HTML ---
@@ -78,14 +89,7 @@ def handle_main_bp_exception(e):
     # Para rutas no-API, dejamos el manejo estándar (HTML)
     return e
 
-# --- Utilitarios de normalización de texto (para detección robusta) ---
-import unicodedata
-def _normalize_text(s: str) -> str:
-    if s is None: return ''
-    # Quitar tildes, bajar a minúsculas y normalizar espacios
-    s_nfkd = unicodedata.normalize('NFKD', str(s))
-    s_ascii = ''.join([c for c in s_nfkd if not unicodedata.combining(c)])
-    return ' '.join(s_ascii.lower().strip().split())
+# --- Utilitario de normalización de texto centralizado en utils.normalize_text ---
 
 def _build_key_docs_block(tipo_entidad: str, nombre_entidad: str, current_filename: str) -> str:
     """Construye un bloque seguro con documentos clave recientes (Reportes 360 y
@@ -176,11 +180,11 @@ def get_negative_evolution_keywords():
 def any_keyword_in_prompt(prompt_text: str, keywords: list) -> bool:
     if not prompt_text or not keywords:
         return False
-    pt_norm = _normalize_text(prompt_text)
+    pt_norm = normalize_text(prompt_text)
     for kw in keywords:
         if not kw:
             continue
-        if _normalize_text(kw) in pt_norm:
+    if normalize_text(kw) in pt_norm:
             return True
     return False
 
@@ -190,7 +194,7 @@ def generate_course_aliases(course_name: str) -> set:
     if not course_name:
         return aliases
     # base normalizado
-    base_norm = _normalize_text(course_name)
+    base_norm = normalize_text(course_name)
     aliases.add(base_norm)
     # quitar símbolos ordinales (° y º)
     no_ordinal = base_norm.replace('°', '').replace('º', '').strip()
@@ -255,7 +259,7 @@ def generate_course_aliases(course_name: str) -> set:
     return aliases
 
 def find_course_in_prompt(course_names: list, prompt_text: str) -> str:
-    pt_norm = _normalize_text(prompt_text)
+    pt_norm = normalize_text(prompt_text)
     for name in course_names:
         for alias in generate_course_aliases(name):
             if alias and alias in pt_norm:
@@ -269,7 +273,7 @@ def detect_course_or_ambiguity(course_names: list, prompt_text: str):
     - ambiguous_level: cadena del nivel detectado cuando hay múltiples paralelos.
     - candidates: lista de nombres de curso que comparten el nivel.
     """
-    pt_norm = _normalize_text(prompt_text)
+    pt_norm = normalize_text(prompt_text)
     import re
     # Primero: coincidencia clara con alias completos
     for name in course_names:
@@ -284,7 +288,7 @@ def detect_course_or_ambiguity(course_names: list, prompt_text: str):
                 break
     # Construir mapa de nivel (sin paralelo) -> cursos
     def strip_parallel(nm: str):
-        t = _normalize_text(nm).split()
+        t = normalize_text(nm).split()
         if t and len(t[-1]) == 1 and t[-1].isalpha():
             t = t[:-1]
         return ' '.join(t)
@@ -390,15 +394,19 @@ def upload_file():
             total_cursos = df_alumnos[curso_col].nunique()
             promedio_general_calculado = df[nota_col].mean()
             
-            # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN DE PROMEDIOS ---
+            # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN CUALITATIVA DE PROMEDIOS ---
             average_distribution_data = {'labels': [], 'counts': []}
             if not df_alumnos[promedio_col].isnull().all():
                 promedios_validos = df_alumnos[promedio_col]
-                bins = [2.0, 3.0, 4.0, 5.0, 6.0, 7.01]; labels = ['2.0-2.9', '3.0-3.9', '4.0-4.9', '5.0-5.9', '6.0-7.0']
+                qual_labels = ['Muy Malo', 'Malo', 'Regular', 'Bueno', 'Muy bueno']
                 try:
-                    dist_counts = pd.cut(promedios_validos, bins=bins, labels=labels, right=False, include_lowest=True).value_counts().sort_index()
-                    average_distribution_data['labels'] = dist_counts.index.tolist(); average_distribution_data['counts'] = dist_counts.values.tolist()
-                except Exception as e: print(f"Error en rangos de distribución de promedios: {e}")
+                    qual_series = promedios_validos.apply(grade_to_qualitative).dropna()
+                    value_counts = qual_series.value_counts()
+                    # Ordenar según las etiquetas deseadas
+                    average_distribution_data['labels'] = qual_labels
+                    average_distribution_data['counts'] = [int(value_counts.get(lbl, 0)) for lbl in qual_labels]
+                except Exception as e:
+                    print(f"Error en distribución cualitativa de promedios: {e}")
 
             # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN DE ASISTENCIA ---
             attendance_distribution_data = {'labels': [], 'counts': []}
@@ -892,10 +900,10 @@ def api_detalle_chat():
         return jsonify({"error": "No se pudo cargar el DataFrame."}), 500
 
     prompt_lower = user_prompt.lower()
-    prompt_norm = _normalize_text(user_prompt)
+    prompt_norm = normalize_text(user_prompt)
     ambiguity_message = ""
-    prompt_norm = _normalize_text(user_prompt)
-    prompt_norm = _normalize_text(user_prompt)
+    prompt_norm = normalize_text(user_prompt)
+    prompt_norm = normalize_text(user_prompt)
     
     # --- Lógica de Resumen Cuantitativo (Notas) ---
     historical_data_summary = ""
@@ -1043,7 +1051,7 @@ def api_submit_advanced_chat():
     entity_type = None
     entity_name = None
     # Inicializaciones necesarias para evitar excepciones de variables no definidas
-    prompt_norm = _normalize_text(user_prompt)
+    prompt_norm = normalize_text(user_prompt)
     ambiguity_message = ""
     
     # --- Lógica de Resumen Cuantitativo (Notas) ---
@@ -1086,7 +1094,7 @@ def api_submit_advanced_chat():
     student_names = df_global[nombre_col].unique().tolist()
     course_names = df_global[curso_col].unique().tolist()
 
-    found_student = next((name for name in student_names if _normalize_text(name) in prompt_norm), None)
+    found_student = next((name for name in student_names if normalize_text(name) in prompt_norm), None)
     if found_student:
         entity_type = 'alumno'
         entity_name = found_student
@@ -1104,12 +1112,12 @@ def api_submit_advanced_chat():
             data_string = load_data_as_string(file_path, specific_entity_df=df_entidad)
         elif amb_level:
             policy = current_app.config.get('COURSE_AMBIGUITY_POLICY', 'ask')
-            default_parallel = _normalize_text(current_app.config.get('DEFAULT_PARALLEL', 'A'))
+            default_parallel = normalize_text(current_app.config.get('DEFAULT_PARALLEL', 'A'))
             chosen = None
             if policy == 'default':
                 # Elegir curso cuyo último token (paralelo) coincide con DEFAULT_PARALLEL
                 for c in candidates:
-                    toks = _normalize_text(c).split()
+                    toks = normalize_text(c).split()
                     if toks and len(toks[-1]) == 1 and toks[-1].isalpha() and toks[-1] == default_parallel.lower():
                         chosen = c
                         break
@@ -1123,7 +1131,7 @@ def api_submit_advanced_chat():
                 # Construir mensaje de ambigüedad para guiar al usuario
                 letters = []
                 for c in candidates:
-                    toks = _normalize_text(c).split()
+                    toks = normalize_text(c).split()
                     if toks and len(toks[-1]) == 1 and toks[-1].isalpha():
                         letters.append(toks[-1].upper())
                 unique_letters = sorted(set(letters))
@@ -1205,6 +1213,45 @@ def api_submit_advanced_chat():
             current_app.logger.error(f"Error al cargar CSV para contexto general: {e}")
             data_string = f"Error al cargar CSV para contexto general: {e}"
     
+    # --- NUEVO: Construcción de Feature Store y generación de señales previas ---
+    fs_signals = ""
+    try:
+        feature_store = build_feature_store_from_csv(df_global)
+        fs_signals = build_feature_store_signals(
+            feature_store,
+            entity_type=entity_type,
+            entity_name=entity_name,
+            user_prompt=user_prompt
+        )
+        # Respuesta directa: alumno con nota más baja en una asignatura (si el prompt lo pide)
+        try:
+            pnorm = normalize_text(user_prompt)
+            asks_lowest = any(kw in pnorm for kw in [
+                'nota mas baja', 'menor nota', 'peor nota', 'nota minima', 'calificacion mas baja'
+            ])
+            if asks_lowest:
+                res = get_lowest_grade_student_for_subject(df_global, user_prompt)
+                if res:
+                    if isinstance(res, dict) and res.get('multiple'):
+                        alumnos = ", ".join([f"{r['nombre']} ({r['curso']})" for r in res['registros']])
+                        direct = (
+                            f"Respuesta directa: Nota más baja en {res['asignatura']}: {res['min_nota']:.2f}. "
+                            f"Estudiantes: {alumnos}."
+                        )
+                    else:
+                        direct = (
+                            f"Respuesta directa: {res['nombre']} ({res['curso']}) tiene la nota más baja en "
+                            f"{res['asignatura']}: {res['nota']:.2f}."
+                        )
+                    fs_signals = (direct + "\n" + fs_signals).strip()
+        except Exception as e_dir:
+            current_app.logger.error(f"Error en respuesta directa por asignatura: {e_dir}")
+        if fs_signals:
+            current_app.logger.info("Señales del Feature Store generadas y listas para el prompt del Chat Avanzado.")
+    except Exception as e_fs:
+        current_app.logger.error(f"Error al construir señales del Feature Store: {e_fs}")
+        fs_signals = ""
+
     history_list = session.get('advanced_chat_history', [])
     history_fmt = format_chat_history_for_prompt(history_list)
     
@@ -1212,7 +1259,8 @@ def api_submit_advanced_chat():
         data_string, user_prompt, vector_store, vector_store_followups, history_fmt, 
         is_direct_chat_query=True, entity_type=entity_type, entity_name=entity_name,
         historical_data_summary_string=historical_data_summary, # <-- Pasa el resumen de NOTAS
-        qualitative_history_summary_string=qualitative_history_summary # <-- Pasa el resumen CUALITATIVO
+        qualitative_history_summary_string=qualitative_history_summary, # <-- Pasa el resumen CUALITATIVO
+        feature_store_signals_string=fs_signals # <-- NUEVO: Señales del Feature Store (CSV primero)
     )
     
     # ... (lógica de guardado de historial de chat y consumo no cambia) ...
@@ -1377,7 +1425,7 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
 # --- INICIO: MODIFICACIÓN ---
     # Generar el timestamp actual en UTC y convertirlo a Santiago
     utc_now = datetime.datetime.now(pytz.utc)
-    santiago_now = utc_now.astimezone(SANTIAGO_TZ)
+    santiago_now = utc_now.astimezone(_get_tz())
     timestamp_generacion_actual = santiago_now.strftime('%d/%m/%Y %H:%M')
     # --- FIN: MODIFICACIÓN ---
 
@@ -1495,7 +1543,7 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
     # --- INICIO: MODIFICACIÓN ---
     # Guardar el timestamp de Santiago en la sesión
     utc_now = datetime.datetime.now(pytz.utc)
-    santiago_now = utc_now.astimezone(SANTIAGO_TZ)
+    santiago_now = utc_now.astimezone(_get_tz())
     session['current_intervention_plan_date'] = santiago_now.strftime('%d/%m/%Y %H:%M')
     # --- FIN: MODIFICACIÓN ---
     session['current_intervention_plan_for_entity_type'] = tipo_entidad
@@ -1556,7 +1604,7 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                     try:
                         naive_dt = datetime.datetime.strptime(plan_data["timestamp"], '%Y-%m-%d %H:%M:%S')
                         utc_dt = pytz.utc.localize(naive_dt)
-                        santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                        santiago_dt = utc_dt.astimezone(_get_tz())
                         plan_date = santiago_dt.strftime('%d/%m/%Y %H:%M')
                     except (ValueError, TypeError):
                         plan_date = plan_data.get("timestamp", "Fecha no válida")
@@ -1703,7 +1751,7 @@ def biblioteca_reportes():
                     # 2. Localizarlo como UTC
                     utc_dt = pytz.utc.localize(naive_dt)
                     # 3. Convertir a zona horaria de Santiago
-                    santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                    santiago_dt = utc_dt.astimezone(_get_tz())
                     # 4. Formatear
                     reporte_dict['timestamp_formateado'] = santiago_dt.strftime('%d/%m/%Y %H:%M')
                 except (ValueError, TypeError):
@@ -1741,7 +1789,7 @@ def ver_reporte_360(reporte_id):
             try:
                 naive_dt = datetime.datetime.strptime(report_data['timestamp'], '%Y-%m-%d %H:%M:%S')
                 utc_dt = pytz.utc.localize(naive_dt)
-                santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                santiago_dt = utc_dt.astimezone(_get_tz())
                 timestamp_formateado = santiago_dt.strftime('%d/%m/%Y %H:%M')
             except (ValueError, TypeError):
                 timestamp_formateado = report_data.get('timestamp', 'Fecha no válida')

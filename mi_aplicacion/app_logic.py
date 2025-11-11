@@ -18,13 +18,20 @@ import csv
 import datetime
 import shutil
 from flask import current_app
+import unicodedata
+from .utils import normalize_text, compile_any_keyword_pattern, get_tz, grade_to_qualitative
 
 import datetime
 import pytz
 from pytz import timezone
 
 # Definimos la zona horaria aquí también para usarla en las consultas de BD
-SANTIAGO_TZ = timezone('America/Santiago')
+# Zona horaria centralizada vía configuración
+def _get_tz():
+    try:
+        return get_tz()
+    except Exception:
+        return timezone('America/Santiago')
 
 embedding_model_instance = None
 vector_store = None # For institutional context
@@ -38,22 +45,49 @@ def get_dataframe_from_session_file():
     
     try:
         df = None
-        # --- LÓGICA DE LECTURA MEJORADA CON DOBLE INTENTO DE DELIMITADOR ---
-        try:
-            # Intento 1: Leer con el delimitador estándar (coma) y la codificación que maneja el BOM.
-            df = pd.read_csv(current_file_path, skipinitialspace=True, encoding='utf-8-sig', sep=',')
-            
-            # Si después de leer con comas solo hay una columna, es probable que el delimitador sea punto y coma.
-            if df.shape[1] == 1:
-                print("Advertencia: El CSV parece tener una sola columna. Reintentando con delimitador de punto y coma (;).")
-                df = pd.read_csv(current_file_path, skipinitialspace=True, encoding='utf-8-sig', sep=';')
+        # --- LÓGICA DE LECTURA ROBUSTA CON DETECCIÓN DE DELIMITADOR Y ENCODING ---
+        def _sniff_sep(path):
+            """Detecta el separador más probable contando ocurrencias en las primeras líneas."""
+            try:
+                with open(path, 'r', encoding='utf-8-sig', errors='ignore') as f:
+                    lines = [next(f) for _ in range(5)]
+            except Exception:
+                try:
+                    with open(path, 'r', encoding='latin-1', errors='ignore') as f:
+                        lines = [next(f) for _ in range(5)]
+                except Exception:
+                    lines = []
+            text = "\n".join(lines)
+            comma = text.count(',')
+            semicol = text.count(';')
+            return ';' if semicol >= comma else ','
 
-        except UnicodeDecodeError:
-            # Fallback de codificación si utf-8-sig falla
-            df = pd.read_csv(current_file_path, skipinitialspace=True, encoding='latin-1', sep=';')
-        except Exception as e:
-            print(f"Error crítico al leer CSV en get_dataframe_from_session_file: {e}")
-            traceback.print_exc()
+        def _try_read(path, sep, encoding, relax=False):
+            try:
+                if relax:
+                    return pd.read_csv(path, skipinitialspace=True, encoding=encoding, sep=sep, engine='python', on_bad_lines='skip')
+                return pd.read_csv(path, skipinitialspace=True, encoding=encoding, sep=sep, engine='python')
+            except Exception:
+                return None
+
+        sep_guess = _sniff_sep(current_file_path)
+        # Intento principal: utf-8-sig con separador detectado
+        df = _try_read(current_file_path, sep_guess, 'utf-8-sig')
+        # Alternar separador si solo creó 1 columna
+        if df is None or df.shape[1] == 1:
+            df = _try_read(current_file_path, ';' if sep_guess == ',' else ',', 'utf-8-sig')
+        # Fallback de codificación latin-1
+        if df is None or df.empty or df.shape[1] == 1:
+            df = _try_read(current_file_path, sep_guess, 'latin-1')
+            if df is None or df.empty or df.shape[1] == 1:
+                df = _try_read(current_file_path, (';' if sep_guess == ',' else ','), 'latin-1')
+        # Último recurso: modo relajado (salta líneas problemáticas)
+        if df is None or df.empty or df.shape[1] == 1:
+            df = _try_read(current_file_path, sep_guess, 'utf-8-sig', relax=True)
+            if df is None or df.empty or df.shape[1] == 1:
+                df = _try_read(current_file_path, (';' if sep_guess == ',' else ','), 'utf-8-sig', relax=True)
+        if df is None:
+            print("Error crítico al leer CSV: no fue posible parsear el archivo con los intentos realizados.")
             return None
         
         if df is None or df.empty:
@@ -86,6 +120,15 @@ def get_dataframe_from_session_file():
         df.dropna(subset=[nota_col], inplace=True)
 
         df[promedio_col] = df.groupby(nombre_col)[nota_col].transform('mean')
+
+        # --- Interpretación cualitativa de notas y promedios ---
+        cual_col = current_app.config.get('CUALITATIVA_COL', 'Calificacion_Cualitativa')
+        prom_cual_col = current_app.config.get('PROMEDIO_CUALITATIVO_COL', 'Promedio_Cualitativo')
+        try:
+            df[cual_col] = df[nota_col].apply(grade_to_qualitative)
+            df[prom_cual_col] = df[promedio_col].apply(grade_to_qualitative)
+        except Exception as e:
+            print(f"Advertencia: no se pudo generar interpretación cualitativa: {e}")
         
         if asistencia_col and asistencia_col in df.columns:
             try:
@@ -116,27 +159,46 @@ def load_data_as_string(full_filepath, specific_entity_df=None):
 
     # El resto de la función (para cargar el archivo completo) permanece igual.
     try:
-        processed_lines = []
+        # Leer contenido crudo primero con manejo de codificación
+        raw = None
         try:
-            with open(full_filepath, 'r', encoding='utf-8') as f:
-                for line in f:
-                    stripped_line = line.strip()
-                    if stripped_line.startswith('"') and stripped_line.endswith('"'): processed_lines.append(stripped_line[1:-1])
-                    else: processed_lines.append(stripped_line)
+            raw = open(full_filepath, 'r', encoding='utf-8-sig').read()
         except UnicodeDecodeError:
-            processed_lines = []
-            with open(full_filepath, 'r', encoding='latin-1') as f:
-                for line in f:
-                    stripped_line = line.strip()
-                    if stripped_line.startswith('"') and stripped_line.endswith('"'): processed_lines.append(stripped_line[1:-1])
-                    else: processed_lines.append(stripped_line)
-        if not processed_lines: return "Error: Archivo CSV vacío o no se pudo leer."
-        csv_string_io = io.StringIO("\n".join(processed_lines))
-        df = pd.read_csv(csv_string_io, skipinitialspace=True)
-        # Aquí también añadimos index=False por consistencia.
-        return df.to_string(index=False) if df is not None else "Error: No se pudo cargar el DataFrame."
-    except FileNotFoundError: return "Error: Archivo CSV de datos no encontrado."
-    except Exception as e: return f"Error al procesar CSV: {e}"
+            raw = open(full_filepath, 'r', encoding='latin-1').read()
+
+        # Detección simple de separador por frecuencia
+        head = (raw.splitlines()[:5])
+        text_head = "\n".join(head)
+        sep_guess = ';' if text_head.count(';') >= text_head.count(',') else ','
+
+        # Intento 1 y 2: separador detectado y alterno
+        def _try_parse(text, sep, relax=False):
+            try:
+                if relax:
+                    return pd.read_csv(io.StringIO(text), sep=sep, skipinitialspace=True, engine='python', on_bad_lines='skip')
+                return pd.read_csv(io.StringIO(text), sep=sep, skipinitialspace=True, engine='python')
+            except Exception:
+                return None
+
+        df = _try_parse(raw, sep_guess)
+        if df is None or df.shape[1] == 1:
+            df = _try_parse(raw, ';' if sep_guess == ',' else ',')
+
+        # Último recurso: modo relajado
+        if df is None or df.shape[1] == 1:
+            df = _try_parse(raw, sep_guess, relax=True) or _try_parse(raw, (';' if sep_guess == ',' else ','), relax=True)
+
+        # Si definitivamente no podemos parsear, devolvemos el texto crudo para que el LLM tenga contexto sin romper
+        if df is None:
+            return raw
+
+        # Limpieza ligera de columnas y representación sin índice
+        df.columns = df.columns.str.strip().str.replace('"', '', regex=False)
+        return df.to_string(index=False)
+    except FileNotFoundError:
+        return "Error: Archivo CSV de datos no encontrado."
+    except Exception as e:
+        return f"Error al procesar CSV: {e}"
 
 def format_chat_history_for_prompt(chat_history_list, max_turns=None):
     # No changes
@@ -149,6 +211,94 @@ def format_chat_history_for_prompt(chat_history_list, max_turns=None):
         gemini_answer_markdown = entry.get('gemini_markdown', 'Respuesta no registrada')
         formatted_history += f"Usuario: {user_query}\nAsistente: {gemini_answer_markdown}\n---\n"
     return formatted_history
+
+# === Utilidades para respuestas directas sobre asignaturas ===
+def _match_subject_name(df: pd.DataFrame, subject_query: str) -> str:
+    """Devuelve el nombre de asignatura del CSV que mejor coincide con el texto pedido.
+    Usa normalización sin tildes y algunos alias comunes (p. ej. 'mate' -> 'Matemáticas').
+    Si no hay match, retorna None.
+    """
+    try:
+        if df is None or df.empty:
+            return None
+        asignatura_col = current_app.config.get('ASIGNATURA_COL', 'Asignatura')
+        if asignatura_col not in df.columns:
+            return None
+        prompt_norm = normalize_text(subject_query)
+        # Alias básicos
+        alias = {
+            'matematica': 'matematicas', 'mate': 'matematicas',
+            'lengua': 'lenguaje', 'language': 'lenguaje',
+            'ingles': 'ingles', 'english': 'ingles',
+            'historia': 'historia', 'musica': 'musica',
+            'arte': 'artes visuales', 'visuales': 'artes visuales',
+            'educacion fisica': 'educacion fisica', 'ed fisica': 'educacion fisica',
+            'ciencias naturales': 'ciencias naturales', 'ciencias': 'ciencias naturales'
+        }
+        prompt_norm = alias.get(prompt_norm, prompt_norm)
+        # Normalizar catálogo de asignaturas
+        subjects = df[asignatura_col].dropna().astype(str).unique().tolist()
+        norm_map = { normalize_text(s): s for s in subjects }
+        # Búsqueda por inclusión (p. ej., "matematicas" dentro del prompt)
+        for norm_name, original in norm_map.items():
+            if norm_name in prompt_norm:
+                return original
+        return None
+    except Exception:
+        return None
+
+def get_lowest_grade_student_for_subject(df: pd.DataFrame, subject_query: str):
+    """Encuentra el alumno con la nota más baja en la asignatura indicada.
+    Retorna:
+      - dict {nombre, curso, asignatura, nota} si hay un único mínimo.
+      - dict {multiple: True, asignatura, min_nota, registros: [..]} si hay empate.
+      - None si no hay datos o no hay match.
+    """
+    try:
+        asignatura_col = current_app.config.get('ASIGNATURA_COL', 'Asignatura')
+        nombre_col = current_app.config['NOMBRE_COL']
+        curso_col = current_app.config['CURSO_COL']
+        nota_col = current_app.config['NOTA_COL']
+        if df is None or df.empty or asignatura_col not in df.columns:
+            return None
+        # Asegurar tipo numérico en Nota
+        dfx = df[[asignatura_col, nombre_col, curso_col, nota_col]].dropna(subset=[asignatura_col, nombre_col, nota_col]).copy()
+        dfx[nota_col] = pd.to_numeric(dfx[nota_col], errors='coerce')
+        dfx = dfx.dropna(subset=[nota_col])
+        subj_name = _match_subject_name(dfx, subject_query)
+        if not subj_name:
+            return None
+        dsub = dfx[dfx[asignatura_col].astype(str) == subj_name]
+        if dsub.empty:
+            return None
+        min_val = float(dsub[nota_col].min())
+        ties = dsub[dsub[nota_col] == min_val].copy()
+        if len(ties) > 1:
+            registros = [
+                {
+                    'nombre': str(r[nombre_col]).strip(),
+                    'curso': str(r[curso_col]).strip(),
+                    'asignatura': str(r[asignatura_col]).strip(),
+                    'nota': float(r[nota_col])
+                }
+                for _, r in ties.iterrows()
+            ]
+            return {
+                'multiple': True,
+                'asignatura': subj_name,
+                'min_nota': min_val,
+                'registros': registros
+            }
+        # Único mínimo
+        row = dsub.loc[dsub[nota_col].idxmin()]
+        return {
+            'nombre': str(row[nombre_col]).strip(),
+            'curso': str(row[curso_col]).strip(),
+            'asignatura': str(row[asignatura_col]).strip(),
+            'nota': float(row[nota_col])
+        }
+    except Exception:
+        return None
 
 def get_student_evolution_summary(db_path, top_n=5, entity_name=None, order_direction='DESC'): # <-- MODIFICACIÓN: Nuevo parámetro añadido
     """
@@ -420,7 +570,7 @@ def get_student_qualitative_history(db_path, student_name):
                 try:
                     naive_dt = datetime.datetime.strptime(row['timestamp'], '%Y-%m-%d %H:%M:%S')
                     utc_dt = pytz.utc.localize(naive_dt)
-                    santiago_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                    santiago_dt = utc_dt.astimezone(_get_tz())
                     date_str = santiago_dt.strftime('%d/%m/%Y')
                 except Exception:
                     date_str = row['timestamp'].split(' ')[0] # Fallback
@@ -487,22 +637,29 @@ def get_course_qualitative_summary(db_path, course_name, max_entries=30):
     params = (normalized_course,)
 
     negative_keywords = [
-        'agresión','pelea','conflicto','disruptivo','falta','injustificado','tarde','retraso',
+        'agresion','pelea','conflicto','disruptivo','falta','injustificado','tarde','retraso',
         'negativo','bajo rendimiento','baja asistencia','problema','riesgo','bullying','maltrato',
-        'llamado de atención','amonestación','incumplimiento'
+        'llamado de atencion','amonestacion','incumplimiento'
     ]
     positive_keywords = [
-        'logro','mejora','positivo','participación','compromiso','destacado','avance','progreso',
-        'buen comportamiento','colaboración','superación'
+        'logro','mejora','positivo','participacion','compromiso','destacado','avance','progreso',
+        'buen comportamiento','colaboracion','superacion'
     ]
 
+    # Compilar patrones una sola vez, usando normalización compartida
+    neg_pattern = compile_any_keyword_pattern(negative_keywords)
+    pos_pattern = compile_any_keyword_pattern(positive_keywords)
+
     def classify_text(text):
-        if not text: return None
-        t = str(text).lower()
-        neg = any(kw in t for kw in negative_keywords)
-        pos = any(kw in t for kw in positive_keywords)
-        if neg and not pos: return 'negativa'
-        if pos and not neg: return 'positiva'
+        if not text:
+            return None
+        t = normalize_text(text)
+        neg = bool(neg_pattern.search(t))
+        pos = bool(pos_pattern.search(t))
+        if neg and not pos:
+            return 'negativa'
+        if pos and not neg:
+            return 'positiva'
         return 'neutra'
 
     try:
@@ -554,7 +711,7 @@ def get_course_qualitative_summary(db_path, course_name, max_entries=30):
                     try:
                         naive_dt = datetime.datetime.strptime(e['timestamp'], '%Y-%m-%d %H:%M:%S')
                         utc_dt = pytz.utc.localize(naive_dt)
-                        local_dt = utc_dt.astimezone(SANTIAGO_TZ)
+                        local_dt = utc_dt.astimezone(_get_tz())
                         fecha = local_dt.strftime('%Y-%m-%d')
                     except Exception:
                         fecha = str(e['timestamp']).split(' ')[0]
@@ -590,7 +747,8 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                              is_plan_intervencion=False, is_direct_chat_query=False,
                              entity_type=None, entity_name=None,
                              historical_data_summary_string="",
-                             qualitative_history_summary_string=""): # <-- MODIFICACIÓN: Nuevo parámetro
+                             qualitative_history_summary_string="",
+                             feature_store_signals_string=""): # <-- MODIFICACIÓN: Nuevo parámetro
     
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
@@ -697,6 +855,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     rag_fu_budget = min(budget_for('rag_followups', 0.20), int(current_app.config.get('RAG_FOLLOWUP_MAX_CHARS', 8000)))
     hist_quant_budget = budget_for('historical_quantitative', 0.10)
     csv_budget = budget_for('csv_or_base_context', 0.10)
+    fs_signals_budget = budget_for('feature_store_signals', 0.08)
 
     # --- Construct final prompt for Gemini ---
     try:
@@ -704,6 +863,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         model = genai.GenerativeModel(model_name)
         
         prompt_parts = []
+        primary_blocks_added = False  # Para evitar duplicar secciones de CSV/histórico/cualitativo
         system_prompt = current_app.config.get('GEMINI_SYSTEM_ROLE_PROMPT', "Eres un asistente útil.")
         # Refuerzo específico para consultas por curso: usar datos agregados del CSV del curso
         if entity_type == 'curso' and entity_name:
@@ -718,6 +878,12 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 prompt_parts.append("\n--- INICIO HISTORIAL DE CONVERSACIÓN PREVIA ---\n")
                 prompt_parts.append(_trim_to_char_budget(chat_history_string, chat_hist_budget) if enable_budget else chat_history_string)
                 prompt_parts.append("\n--- FIN HISTORIAL DE CONVERSACIÓN PREVIA ---\n")
+            # Señales del Feature Store (si existen)
+            if feature_store_signals_string:
+                prompt_parts.append("Señales calculadas previamente del Feature Store (CSV + historial integrado):\n```\n")
+                fs_block = _trim_to_char_budget(feature_store_signals_string, fs_signals_budget) if enable_budget else feature_store_signals_string
+                prompt_parts.append(fs_block)
+                prompt_parts.append("\n```\n---")
             
             is_course_query = (entity_type == 'curso')
             if is_course_query:
@@ -726,6 +892,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 data_block_initial = _trim_to_char_budget(data_string, csv_budget) if enable_budget else data_string
                 prompt_parts.append(data_block_initial)
                 prompt_parts.append("\n```\n---")
+                primary_blocks_added = True
 
                 if historical_data_summary_string:
                     prompt_parts.append("Resumen de Datos Históricos del Curso (Evolución de notas calculada desde la Base de Datos):\n```\n")
@@ -749,13 +916,28 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                     "\n```\n---",
                 ])
             else:
-                # Orden previo para alumno u otros: cualitativo -> RAG -> histórico -> CSV
+                # CSV-FIRST para consultas generales y de alumno:
+                # Priorizar SIEMPRE el CSV (datos objetivos numéricos) al inicio;
+                # luego resumen histórico cuantitativo; después cualitativo; y finalmente RAG.
+                prompt_parts.append("Contexto Principal de Datos (CSV primero para la consulta actual):\n```\n")
+                data_block_initial = _trim_to_char_budget(data_string, csv_budget) if enable_budget else data_string
+                prompt_parts.append(data_block_initial)
+                prompt_parts.append("\n```\n---")
+                primary_blocks_added = True
+
+                if historical_data_summary_string:
+                    prompt_parts.append("Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n")
+                    hist_block_initial = _trim_to_char_budget(historical_data_summary_string, hist_quant_budget) if enable_budget else historical_data_summary_string
+                    prompt_parts.append(hist_block_initial)
+                    prompt_parts.append("\n```\n---")
+
                 if qualitative_history_summary_string:
-                    prompt_parts.append("Resumen de Datos Cualitativos Históricos (Evolución de conducta, entrevistas, etc. ordenado por fecha):\n```\n")
+                    prompt_parts.append("Resumen de Datos Cualitativos Históricos (conducta, entrevistas, etc.):\n```\n")
                     qual_block = _trim_to_char_budget(qualitative_history_summary_string, qual_docs_budget) if enable_budget else qualitative_history_summary_string
                     prompt_parts.append(qual_block)
                     prompt_parts.append("\n```\n---")
 
+                # Finalmente RAG (institucional y de seguimiento)
                 prompt_parts.extend([
                     "Contexto Institucional Relevante (Información general de la institución, si se encontró para la consulta):\n```\n",
                     (_trim_to_char_budget(retrieved_context_inst, rag_inst_budget) if enable_budget else retrieved_context_inst),
@@ -765,8 +947,8 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                     "\n```\n---",
                 ])
         
-        # Para alumno u otros, añadimos histórico y CSV al final como estaba
-        if not (entity_type == 'curso' and not is_reporte_360 and not is_plan_intervencion):
+        # Evitar duplicar bloques si ya se añadieron en el orden CSV-first anterior
+        if (not primary_blocks_added) and not (entity_type == 'curso' and not is_reporte_360 and not is_plan_intervencion):
             if historical_data_summary_string:
                 prompt_parts.append("Resumen de Datos Históricos (Evolución Cuantitativa/Notas calculada desde la Base de Datos):\n```\n")
                 hist_block = _trim_to_char_budget(historical_data_summary_string, hist_quant_budget) if enable_budget else historical_data_summary_string
@@ -1210,7 +1392,7 @@ def get_historical_reportes_360_for_entity(db_path, tipo_entidad, nombre_entidad
                 try:
                     naive_dt = datetime.datetime.strptime(row["timestamp"], '%Y-%m-%d %H:%M:%S')
                     utc_dt = pytz.utc.localize(naive_dt)
-                    santiago_dt = utc_dt.astimezone(timezone('America/Santiago'))
+                    santiago_dt = utc_dt.astimezone(_get_tz())
                     ts_form = santiago_dt.strftime('%d/%m/%Y %H:%M')
                 except Exception:
                     ts_form = row.get('timestamp', '')
@@ -1477,8 +1659,11 @@ def get_alumnos_observaciones_negativas_por_nivel(df):
     df_c['Nivel'] = df_c[curso_col].astype(str).apply(_extract_level_from_course)
     
     # Filtrar todas las filas que contienen una palabra clave negativa en la columna de observación
-    kws_l = [kw.lower() for kw in kws]
-    df_neg = df_c[df_c[obs_col].apply(lambda o: any(kw in str(o).lower() for kw in kws_l) if pd.notna(o) else False)]
+    def _norm(s: str) -> str:
+        s_nfkd = unicodedata.normalize('NFKD', str(s).lower())
+        return ''.join(c for c in s_nfkd if not unicodedata.combining(c))
+    kws_l = [_norm(kw) for kw in kws]
+    df_neg = df_c[df_c[obs_col].apply(lambda o: any(kw in _norm(o) for kw in kws_l) if pd.notna(o) else False)]
     
     # De la lista de filas con observaciones negativas, eliminamos los alumnos duplicados.
     # Esto asegura que cada alumno aparezca solo una vez en el reporte de alertas.
@@ -1900,3 +2085,442 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
         print(f"CRITICAL DEBUG: Error al SIMULAR y sugerir recursos con Gemini: {e}") 
         traceback.print_exc()
         return f"Error: No pude generar sugerencias de recursos. Detalle: {e}"
+
+# ================================
+# NUEVO: FEATURE STORE UNIFICADO
+# ================================
+def build_feature_store_from_csv(df_full: pd.DataFrame) -> dict:
+    """
+    Construye un Feature Store mínimo a partir del CSV activo para asegurar señales
+    numéricas y trazables, incluso cuando el LLM no interprete bien el texto libre.
+
+    Estructura de salida:
+    {
+        'students': {
+            '<Nombre>': { 'curso': str, 'promedio': float|None, 'asistencia': float|None }
+        },
+        'courses': {
+            '<Curso>': { 'avg_grade': float|None, 'avg_attendance': float|None, 'num_students': int }
+        },
+        'levels': get_level_kpis(df_full),
+        'course_attendance': get_course_attendance_kpis(df_full)
+    }
+    """
+    try:
+        if df_full is None or df_full.empty:
+            return {}
+        nombre_col = current_app.config['NOMBRE_COL']
+        curso_col = current_app.config['CURSO_COL']
+        nota_col = current_app.config['NOTA_COL']
+        promedio_col = current_app.config['PROMEDIO_COL']
+        asistencia_col = current_app.config.get('ASISTENCIA_COL')
+        asignatura_col = current_app.config.get('ASIGNATURA_COL')
+        observaciones_col = current_app.config.get('OBSERVACIONES_COL')
+        familia_col = current_app.config.get('FAMILIA_COL')
+        entrevistas_col = current_app.config.get('ENTREVISTAS_COL')
+
+        # Tiempos para métricas
+        start_perf = datetime.datetime.now().timestamp()
+
+        # Asegurar promedio por alumno (si estamos en formato largo)
+        df = df_full.copy()
+        try:
+            if promedio_col not in df.columns and nota_col in df.columns and nombre_col in df.columns:
+                df[promedio_col] = df.groupby(nombre_col)[nota_col].transform('mean')
+        except Exception:
+            pass
+
+        # Alumnos únicos
+        students = {}
+        if nombre_col in df.columns:
+            df_alumnos = df.drop_duplicates(subset=[nombre_col]).copy()
+            # Pre-computar peor asignatura por alumno si hay columnas disponibles
+            peor_asig_por_alumno = {}
+            # Métricas de consistencia por alumno (std y rango entre asignaturas)
+            consistencia_por_alumno = {}
+            try:
+                if asignatura_col in df.columns and nota_col in df.columns:
+                    # Promedios por alumno y asignatura
+                    proms = (
+                        df[[nombre_col, asignatura_col, nota_col]]
+                          .dropna(subset=[nombre_col, asignatura_col, nota_col])
+                          .groupby([nombre_col, asignatura_col])[nota_col]
+                          .mean()
+                          .reset_index()
+                    )
+                    # Para cada alumno, escoger la asignatura con menor promedio
+                    for alumno, grp in proms.groupby(nombre_col):
+                        idx_min = grp[nota_col].idxmin()
+                        row = grp.loc[idx_min]
+                        peor_asig_por_alumno[str(alumno).strip()] = {
+                            'asignatura': str(row[asignatura_col]),
+                            'promedio': float(row[nota_col])
+                        }
+                        # Consistencia entre asignaturas
+                        subject_avgs = grp[nota_col].astype(float).values
+                        if len(subject_avgs) >= 2:
+                            std_dev = float(np.std(subject_avgs))
+                            rng = float(np.max(subject_avgs) - np.min(subject_avgs))
+                        else:
+                            std_dev = None
+                            rng = None
+                        consistencia_por_alumno[str(alumno).strip()] = {
+                            'num_asignaturas': int(len(subject_avgs)),
+                            'std_dev': std_dev,
+                            'rango': rng
+                        }
+            except Exception:
+                peor_asig_por_alumno = {}
+
+            # Conteo de anotaciones negativas por alumno, vectorizado por palabras clave
+            neg_counts_por_alumno = {}
+            neg_examples_por_alumno = {}
+            try:
+                if observaciones_col in df.columns:
+                    cfg_kws = current_app.config.get('NEGATIVE_OBSERVATION_KEYWORDS', []) or []
+                    extra_kws = [
+                        'pelea', 'bullying', 'maltrato', 'incumplimiento', 'irrespeto', 'castigo',
+                        'bajo rendimiento', 'baja asistencia', 'problema', 'riesgo'
+                    ]
+                    all_kws = list({ normalize_text(k) for k in (cfg_kws + extra_kws) })
+                    pattern = compile_any_keyword_pattern(all_kws)
+
+                    df_obs = df[[nombre_col, observaciones_col]].dropna(subset=[nombre_col]).copy()
+                    df_obs[observaciones_col] = df_obs[observaciones_col].fillna("").astype(str)
+                    # Normalización previa para matching rápido
+                    df_obs["__obs_norm"] = df_obs[observaciones_col].map(normalize_text)
+                    hit_mask = df_obs["__obs_norm"].str.contains(pattern, na=False)
+                    hits_df = df_obs.loc[hit_mask, [nombre_col, observaciones_col]].copy()
+                    # Conteos por alumno
+                    if not hits_df.empty:
+                        neg_counts_por_alumno = hits_df.groupby(nombre_col).size().astype(int).to_dict()
+                        # Ejemplos por alumno (hasta 3)
+                        ex_series = hits_df.groupby(nombre_col)[observaciones_col].apply(lambda s: s.iloc[:3].tolist())
+                        neg_examples_por_alumno = { str(k).strip(): v for k, v in ex_series.to_dict().items() }
+            except Exception:
+                pass
+
+            # Indicador de situación familiar compleja por alumno (vectorizado)
+            fam_complex_score = {}
+            fam_complex_examples = {}
+            try:
+                cols_to_scan = []
+                if familia_col in df.columns:
+                    cols_to_scan.append(familia_col)
+                if entrevistas_col in df.columns:
+                    cols_to_scan.append(entrevistas_col)
+                if cols_to_scan:
+                    complexity_keywords = [
+                        'separacion','divorcio','violencia','maltrato','abuso','vulnerabilidad','sename',
+                        'medida de proteccion','denuncia','consumo de drogas','alcohol','adiccion',
+                        'problemas economicos','desempleo','fallecimiento','enfermedad grave','hospitalizado',
+                        'conflicto familiar','cambio de tutor','custodia','situacion compleja','situacion familiar compleja',
+                        'acoso escolar', 'tdah'
+                    ]
+                    comp_pattern = compile_any_keyword_pattern(complexity_keywords)
+                    df_fam = df[[nombre_col] + cols_to_scan].copy()
+                    for col in cols_to_scan:
+                        df_fam[col] = df_fam[col].fillna("").astype(str)
+                        df_fam[f"__{col}_norm"] = df_fam[col].map(normalize_text)
+                    # Máscara de match por columna y OR global
+                    masks = [ df_fam[f"__{col}_norm"].str.contains(comp_pattern, na=False) for col in cols_to_scan ]
+                    if masks:
+                        mask_any = masks[0]
+                        for m in masks[1:]:
+                            mask_any = mask_any | m
+                        hits_df = df_fam.loc[mask_any, [nombre_col] + cols_to_scan].copy()
+                        if not hits_df.empty:
+                            fam_complex_score = hits_df.groupby(nombre_col).size().astype(int).to_dict()
+                            # Ejemplos: concatenar valores no vacíos de columnas escaneadas y tomar hasta 3
+                            def _row_texts(row):
+                                vals = []
+                                for c in cols_to_scan:
+                                    v = str(row[c]).strip()
+                                    if v:
+                                        vals.append(v)
+                                return vals
+                            # Expandir a una serie de listas y aplanar por alumno
+                            ex_map = {}
+                            for _, row in hits_df.iterrows():
+                                alumno = str(row[nombre_col]).strip()
+                                ex_map.setdefault(alumno, [])
+                                for v in _row_texts(row):
+                                    if len(ex_map[alumno]) < 3:
+                                        ex_map[alumno].append(v)
+                            fam_complex_examples = ex_map
+            except Exception:
+                pass
+
+            for _, r in df_alumnos.iterrows():
+                name = str(r.get(nombre_col, '')).strip()
+                course = r.get(curso_col)
+                avg = r.get(promedio_col)
+                att = r.get(asistencia_col)
+                try:
+                    att_val = float(att) if pd.notna(att) else None
+                except Exception:
+                    att_val = None
+                students[name] = {
+                    'curso': course,
+                    'promedio': float(avg) if pd.notna(avg) else None,
+                    'asistencia': att_val,
+                    'peor_asignatura': peor_asig_por_alumno.get(name),
+                    'consistencia_asignaturas': consistencia_por_alumno.get(name),
+                    'neg_annotations_count': neg_counts_por_alumno.get(name, 0),
+                    'neg_annotations_examples': neg_examples_por_alumno.get(name, []),
+                    'family_complexity_score': fam_complex_score.get(name, 0),
+                    'family_complexity_examples': fam_complex_examples.get(name, [])
+                }
+
+        # Cursos agregados
+        courses = {}
+        if curso_col in df.columns:
+            # Promedio de curso calculado sobre notas por asignatura (si existe) o promedio por alumno
+            try:
+                avg_by_course = df.groupby(curso_col)[nota_col].mean() if nota_col in df.columns else df.groupby(curso_col)[promedio_col].mean()
+            except Exception:
+                avg_by_course = pd.Series(dtype=float)
+            # Asistencia promedio por curso
+            try:
+                if asistencia_col in df.columns:
+                    df_alumnos = df.drop_duplicates(subset=[nombre_col]).copy()
+                    att_by_course = df_alumnos.groupby(curso_col)[asistencia_col].mean()
+                else:
+                    att_by_course = pd.Series(dtype=float)
+            except Exception:
+                att_by_course = pd.Series(dtype=float)
+
+            counts_by_course = df.drop_duplicates(subset=[nombre_col]).groupby(curso_col)[nombre_col].count()
+            for course_name in df[curso_col].unique():
+                courses[str(course_name)] = {
+                    'avg_grade': float(avg_by_course.get(course_name)) if pd.notna(avg_by_course.get(course_name)) else None,
+                    'avg_attendance': float(att_by_course.get(course_name)) if pd.notna(att_by_course.get(course_name)) else None,
+                    'num_students': int(counts_by_course.get(course_name, 0))
+                }
+
+        # Métricas de construcción y señales (para trazabilidad)
+        try:
+            neg_total = int(sum(neg_counts_por_alumno.values())) if neg_counts_por_alumno else 0
+        except Exception:
+            neg_total = 0
+        try:
+            fam_total = int(sum(fam_complex_score.values())) if fam_complex_score else 0
+        except Exception:
+            fam_total = 0
+        end_perf = datetime.datetime.now().timestamp()
+        build_ms = int((end_perf - start_perf) * 1000)
+
+        fs = {
+            'students': students,
+            'courses': courses,
+            'levels': get_level_kpis(df),
+            'course_attendance': get_course_attendance_kpis(df),
+            'totals': {
+                'num_students': int(len(students)),
+                'num_courses': int(len(courses)),
+                'num_levels': int(len(get_level_kpis(df)))
+            },
+            'metrics': {
+                'neg_annotations_total': neg_total,
+                'family_complexity_total': fam_total,
+                'build_time_ms': build_ms
+            }
+        }
+        try:
+            current_app.logger.info(f"FeatureStore construido: alumnos={len(students)}, cursos={len(courses)}, neg_total={neg_total}, fam_total={fam_total}, build_ms={build_ms}")
+        except Exception:
+            # Fallback simple
+            print(f"FeatureStore construido: alumnos={len(students)}, cursos={len(courses)}, neg_total={neg_total}, fam_total={fam_total}, build_ms={build_ms}")
+        return fs
+    except Exception as e:
+        print(f"Error al construir Feature Store desde CSV: {e}")
+        traceback.print_exc()
+        return {}
+
+
+def build_feature_store_signals(fs: dict, entity_type: str = None, entity_name: str = None, user_prompt: str = "") -> str:
+    """
+    Genera un bloque de señales textuales a partir del Feature Store.
+    Priorizamos señales que suelen pedir los usuarios: asistencia baja por curso, curso de menor promedio por nivel, alumnos con peor promedio.
+    """
+    if not fs:
+        return ""
+    lines = []
+    try:
+        # Señales globales de conteos básicos (siempre útiles y responden preguntas directas)
+        totals = fs.get('totals', {}) or {}
+        num_students = totals.get('num_students'); num_courses = totals.get('num_courses'); num_levels = totals.get('num_levels')
+        if isinstance(num_students, int) and num_students > 0:
+            lines.append(f"Total de estudiantes en el CSV: {num_students}")
+        if isinstance(num_courses, int) and num_courses > 0:
+            lines.append(f"Total de cursos en el CSV: {num_courses}")
+        if isinstance(num_levels, int) and num_levels > 0:
+            lines.append(f"Total de niveles en el CSV: {num_levels}")
+
+        # Señales de asistencia por curso (Top 3 peor asistencia)
+        att_map = fs.get('course_attendance', {}) or {}
+        # Convertir posibles strings "85.0%" a float 0.85
+        def _att_to_float(v):
+            if v is None:
+                return None
+            try:
+                s = str(v).strip().replace('%', '')
+                val = float(s)
+                return val/100.0 if val > 1 else val
+            except Exception:
+                return None
+        att_items = [(k, _att_to_float(v)) for k, v in att_map.items()]
+        att_items = [(k, v) for k, v in att_items if v is not None]
+        att_sorted = sorted(att_items, key=lambda x: x[1])[:3]
+        if att_sorted:
+            lines.append("Cursos con menor asistencia (Top 3):")
+            for course, val in att_sorted:
+                lines.append(f"- {course}: {val:.1%}")
+
+        # Señales de tamaño por curso (Top 5 por cantidad de alumnos)
+        courses = fs.get('courses', {}) or {}
+        try:
+            by_size = [ (name, info.get('num_students')) for name, info in courses.items() if isinstance(info.get('num_students'), int) ]
+            by_size.sort(key=lambda x: x[1], reverse=True)
+            top5 = by_size[:5]
+            if top5:
+                lines.append("Cursos con más estudiantes (Top 5):")
+                for cname, ccount in top5:
+                    lines.append(f"- {cname}: {int(ccount)} alumnos")
+        except Exception:
+            pass
+
+        # Señales por nivel: curso de menor promedio
+        levels = fs.get('levels', {}) or {}
+        for level_name, info in levels.items():
+            cmin = (info or {}).get('curso_menor_promedio', {})
+            cmin_name = str(cmin.get('nombre', 'N/A'))
+            cmin_avg = cmin.get('promedio', None)
+            if cmin_name and cmin_name != 'N/A' and cmin_avg is not None:
+                lines.append(f"Nivel {level_name} – Curso con menor promedio: {cmin_name} ({float(cmin_avg):.2f})")
+
+        # Señales globales: alumnos con rendimiento más parejo entre asignaturas (Top 3 por menor desviación)
+        try:
+            students_map = fs.get('students', {}) or {}
+            consistency_list = []
+            for name, info in students_map.items():
+                c = info.get('consistencia_asignaturas') or {}
+                std_dev = c.get('std_dev'); nsub = c.get('num_asignaturas'); course = info.get('curso')
+                if isinstance(std_dev, (int, float)) and std_dev is not None and isinstance(nsub, int) and nsub >= 2:
+                    consistency_list.append((name, std_dev, nsub, course))
+            consistency_list.sort(key=lambda x: x[1])
+            top_consistent = consistency_list[:3]
+            if top_consistent:
+                lines.append("Alumnos con rendimiento más parejo entre asignaturas (Top 3):")
+                for name, std_dev, nsub, course in top_consistent:
+                    lines.append(f"- {name} ({course}): desviación {float(std_dev):.2f} en {int(nsub)} asignaturas")
+        except Exception:
+            pass
+
+        # Señales globales: alumnos con menor promedio (Top 3)
+        try:
+            students_map = fs.get('students', {}) or {}
+            bottom_students = [
+                (name, info.get('promedio'), info.get('curso'))
+                for name, info in students_map.items()
+                if isinstance(info.get('promedio'), (int, float)) and info.get('promedio') is not None
+            ]
+            bottom_students.sort(key=lambda x: x[1])
+            bottom_students = bottom_students[:3]
+            if bottom_students:
+                lines.append("Alumnos con menor promedio (Top 3):")
+                for name, avg, course in bottom_students:
+                    lines.append(f"- {name} ({course}): {float(avg):.2f}")
+        except Exception:
+            pass
+
+        # Señales globales: alumnos con mejor promedio (Top 3)
+        try:
+            students_map = fs.get('students', {}) or {}
+            top_students = [
+                (name, info.get('promedio'), info.get('curso'))
+                for name, info in students_map.items()
+                if isinstance(info.get('promedio'), (int, float)) and info.get('promedio') is not None
+            ]
+            top_students.sort(key=lambda x: x[1], reverse=True)
+            top_students = top_students[:3]
+            if top_students:
+                lines.append("Alumnos con mejor promedio (Top 3):")
+                for name, avg, course in top_students:
+                    lines.append(f"- {name} ({course}): {float(avg):.2f}")
+        except Exception:
+            pass
+
+        # Señales globales: alumnos con más anotaciones negativas (Top 3)
+        try:
+            students_map = fs.get('students', {}) or {}
+            neg_list = []
+            for name, info in students_map.items():
+                cnt = info.get('neg_annotations_count', 0)
+                course = info.get('curso')
+                if isinstance(cnt, int) and cnt > 0:
+                    neg_list.append((name, cnt, course))
+            neg_list.sort(key=lambda x: x[1], reverse=True)
+            top_neg = neg_list[:3]
+            if top_neg:
+                lines.append("Alumnos con más anotaciones negativas (Top 3):")
+                for name, cnt, course in top_neg:
+                    lines.append(f"- {name} ({course}): {int(cnt)} anotaciones negativas")
+        except Exception:
+            pass
+
+        # Señales globales: alumnos con indicios de situación familiar compleja (Top 5 por score)
+        try:
+            students_map = fs.get('students', {}) or {}
+            fam_list = []
+            for name, info in students_map.items():
+                score = info.get('family_complexity_score', 0)
+                course = info.get('curso')
+                if isinstance(score, int) and score > 0:
+                    fam_list.append((name, score, course))
+            fam_list.sort(key=lambda x: x[1], reverse=True)
+            top_fam = fam_list[:5]
+            if top_fam:
+                lines.append("Alumnos con situación familiar potencialmente compleja (Top 5):")
+                for name, score, course in top_fam:
+                    lines.append(f"- {name} ({course}): {int(score)} registros con indicios")
+        except Exception:
+            pass
+
+        # Señales específicas si el contexto es curso o alumno
+        if entity_type == 'curso' and entity_name:
+            c = (fs.get('courses', {}) or {}).get(entity_name, {})
+            if c:
+                avg = c.get('avg_grade'); att = c.get('avg_attendance'); n = c.get('num_students')
+                avg_txt = f"{avg:.2f}" if isinstance(avg, (int,float)) and avg is not None else "N/A"
+                att_txt = f"{att:.1%}" if isinstance(att, (int,float)) and att is not None else "N/A"
+                lines.append(f"Curso {entity_name}: promedio {avg_txt} | asistencia {att_txt} | Nº alumnos {n}")
+        elif entity_type == 'alumno' and entity_name:
+            s = (fs.get('students', {}) or {}).get(entity_name, {})
+            if s:
+                avg = s.get('promedio'); att = s.get('asistencia'); course = s.get('curso')
+                att_txt = f"{att:.1%}" if isinstance(att, (int,float)) and att is not None else "N/A"
+                avg_txt = f"{avg:.2f}" if isinstance(avg, (int,float)) and avg is not None else "N/A"
+                lines.append(f"Alumno {entity_name} ({course}): promedio {avg_txt} | asistencia {att_txt}")
+                peor_asig = s.get('peor_asignatura') or {}
+                pa_nombre = peor_asig.get('asignatura')
+                pa_prom = peor_asig.get('promedio')
+                if pa_nombre and isinstance(pa_prom, (int, float)):
+                    lines.append(f"Peor asignatura: {pa_nombre} ({float(pa_prom):.2f})")
+                # Detalle de consistencia entre asignaturas
+                cons = s.get('consistencia_asignaturas') or {}
+                if isinstance(cons.get('std_dev'), (int, float)) and cons.get('std_dev') is not None:
+                    lines.append(f"Consistencia (desv. estándar entre asignaturas): {float(cons.get('std_dev')):.2f} en {int(cons.get('num_asignaturas') or 0)} asignaturas")
+                # Detalle de anotaciones negativas
+                neg_cnt = s.get('neg_annotations_count', 0)
+                if isinstance(neg_cnt, int) and neg_cnt > 0:
+                    lines.append(f"Anotaciones negativas detectadas en CSV: {int(neg_cnt)}")
+                # Detalle de situación familiar compleja
+                fam_score = s.get('family_complexity_score', 0)
+                if isinstance(fam_score, int) and fam_score > 0:
+                    lines.append(f"Registros con indicios de situación familiar compleja: {int(fam_score)}")
+
+    except Exception as e:
+        lines.append(f"[Error al generar señales del Feature Store: {e}]")
+
+    return "\n".join(lines)
