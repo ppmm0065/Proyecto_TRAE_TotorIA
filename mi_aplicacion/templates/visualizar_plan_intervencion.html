@@ -103,6 +103,28 @@
     .ia-plan-content ul > li > ul > li p + p::before {
         content: " "; /* Inserta espacio entre párrafos unidos */
     }
+    /* NUEVO: Cuando el contenido de 'Acción' o 'Fundamentación' incluye listas anidadas, forzar flujo continuo */
+    .ia-plan-content ul > li > ul > li > ul,
+    .ia-plan-content ul > li > ul > li > ol {
+        list-style: none;
+        padding-left: 0;
+        margin: 0;
+    }
+    .ia-plan-content ul > li > ul > li > ul > li,
+    .ia-plan-content ul > li > ul > li > ol > li {
+        display: inline;
+        margin: 0;
+    }
+    .ia-plan-content ul > li > ul > li > ul > li + li::before,
+    .ia-plan-content ul > li > ul > li > ol > li + li::before {
+        content: " "; /* espacio entre elementos de lista unidos */
+    }
+    /* Unificar cualquier bloque directo dentro del item (div, blockquote) para evitar saltos verticales */
+    .ia-plan-content ul > li > ul > li > div,
+    .ia-plan-content ul > li > ul > li > blockquote {
+        display: inline;
+        margin: 0;
+    }
 </style>
 {% endblock %}
 
@@ -199,6 +221,47 @@
                             n.textContent = n.textContent.replace(/\s+/g, ' ');
                         }
                     });
+                    // NUEVO (robusto): Aplanar contenido anidado (listas, párrafos, divs) incluso si no son hijos directos
+                    const afterTitleNodes = [];
+                    let foundTitle = false;
+                    li.childNodes.forEach(node => {
+                        if (!foundTitle && node === title) {
+                            foundTitle = true; // a partir de aquí tomamos el contenido
+                            return;
+                        }
+                        if (!foundTitle) return; // aún estamos antes del título
+                        afterTitleNodes.push(node);
+                    });
+
+                    if (afterTitleNodes.length) {
+                        const container = document.createElement('span');
+                        // Mantener flujo continuo: mover nodos dentro de un contenedor inline
+                        afterTitleNodes.forEach(node => {
+                            if (node.nodeType === Node.TEXT_NODE) {
+                                const txt = node.textContent.replace(/\s+/g, ' ');
+                                container.appendChild(document.createTextNode(txt));
+                            } else if (node.tagName === 'UL' || node.tagName === 'OL') {
+                                const items = node.querySelectorAll(':scope > li');
+                                items.forEach((it, idx) => {
+                                    // mover los hijos (preserva enlaces)
+                                    Array.from(it.childNodes).forEach(ch => container.appendChild(ch));
+                                    if (idx < items.length - 1) container.appendChild(document.createTextNode(' '));
+                                });
+                            } else if (node.tagName === 'P' || node.tagName === 'DIV' || node.tagName === 'BLOCKQUOTE') {
+                                Array.from(node.childNodes).forEach(ch => container.appendChild(ch));
+                                container.appendChild(document.createTextNode(' '));
+                            } else if (node.tagName === 'BR') {
+                                container.appendChild(document.createTextNode(' '));
+                            } else {
+                                container.appendChild(node); // otros nodos (ej. <a>) se preservan
+                                container.appendChild(document.createTextNode(' '));
+                            }
+                        });
+
+                        // Reemplazar todo el contenido después del <strong> por el contenedor normalizado
+                        afterTitleNodes.forEach(n => n.remove());
+                        li.appendChild(container);
+                    }
                 }
             });
         })();
