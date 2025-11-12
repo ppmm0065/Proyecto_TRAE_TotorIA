@@ -21,7 +21,7 @@ class Config:
     FAISS_INDEX_PATH = "./faiss_index_multi" 
     FAISS_FOLLOWUP_INDEX_PATH = "./faiss_index_followups"
     EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-    NUM_RELEVANT_CHUNKS = 7 # Aumentado para más contexto
+    NUM_RELEVANT_CHUNKS = 10 # Aumentado moderadamente para mayor cobertura de contexto
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     # Zona horaria centralizada para conversiones de tiempo
     TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Santiago')
@@ -248,18 +248,20 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
 
     # Presupuesto de prompt y secciones (en caracteres)
     ENABLE_PROMPT_BUDGETING = True
-    PROMPT_MAX_CHARS = 24000
+    PROMPT_MAX_CHARS = 36000
     PROMPT_SECTION_CHAR_BUDGETS = {
-        'chat_history': 0.10,
-        'key_docs_and_qualitative': 0.25,
-        'rag_institutional': 0.25,
-        'rag_followups': 0.20,
-        'historical_quantitative': 0.10,
-        'csv_or_base_context': 0.10
+        'chat_history': 0.08,
+        'key_docs_and_qualitative': 0.20,
+        'rag_institutional': 0.30,
+        'rag_followups': 0.28,
+        'historical_quantitative': 0.07,
+        'csv_or_base_context': 0.07,
+        # Añadido para controlar el presupuesto de señales del feature store dentro del total
+        'feature_store_signals': 0.05
     }
     # Presupuestos máximos específicos para RAG (aplicados además del total)
-    RAG_INST_MAX_CHARS = 8000
-    RAG_FOLLOWUP_MAX_CHARS = 8000
+    RAG_INST_MAX_CHARS = 12000
+    RAG_FOLLOWUP_MAX_CHARS = 12000
 
     # Listas de keywords configurables (se pueden sobreescribir por entorno)
     EVOLUTION_KEYWORDS = [
