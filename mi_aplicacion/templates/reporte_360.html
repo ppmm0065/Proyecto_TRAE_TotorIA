@@ -44,9 +44,23 @@
         content: '\f071'; /* warning icon */
         color: #f59e0b; /* amber-500 */
     }
-     .ia-report-content h3:nth-of-type(3) + ul li::before {
+    .ia-report-content h3:nth-of-type(3) + ul li::before {
         content: '\f05a'; /* info icon */
         color: #3b82f6; /* blue-500 */
+    }
+
+    /* Ocultar de forma defensiva cualquier sección/elemento relacionado a Observaciones del Reporte 360
+       que pudiera seguir presente por cacheo de plantillas o duplicados en el entorno. */
+    #seccion-observaciones-reporte,
+    #seccion-observaciones-anteriores,
+    #form-agregar-observacion-reporte,
+    #observacion-guardada-notificacion,
+    #lista-observaciones-reporte {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 </style>
 {% endblock %}
@@ -131,20 +145,7 @@
                 {{ reporte_html|safe }}
             </div>
 
-            {# --- SECCIÓN DE REGISTRO DE OBSERVACIONES (sin cambios) --- #}
-            {% if reporte_360_id %}
-            <div id="seccion-observaciones-reporte" class="my-8 p-6 bg-white rounded-lg shadow-xl border border-slate-200">
-                <h2 class="text-xl font-semibold text-slate-800 mb-4">
-                    <i class="fas fa-feather-alt mr-2 text-cyan-500"></i> Registro de Observaciones para este Reporte
-                </h2>
-                <form id="form-agregar-observacion-reporte" class="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    </form>
-                <div id="observacion-guardada-notificacion" class="text-xs mt-2 h-4"></div>
-                <h3 class="text-lg font-medium text-slate-700 mt-6 mb-3">Observaciones Anteriores (para este Reporte #{{ reporte_360_id }}):</h3>
-                <div id="lista-observaciones-reporte" class="space-y-3 max-h-80 overflow-y-auto custom-scrollbar border border-slate-200 rounded-md p-3 bg-slate-50">
-                    </div>
-            </div>
-            {% endif %}
+            {# Se elimina la sección de registro y listado de observaciones del Reporte 360, según requerimiento #}
         {% endif %}
     {% else %}
         <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4 mb-6" role="alert">
@@ -161,124 +162,5 @@
 
 {% block scripts %}
     {{ super() }}
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("Página de Reporte 360 cargada.");
-            const formAgregarObservacion = document.getElementById('form-agregar-observacion-reporte');
-            const listaObservacionesDiv = document.getElementById('lista-observaciones-reporte');
-            const notificacionDiv = document.getElementById('observacion-guardada-notificacion');
-
-            if (formAgregarObservacion) {
-                formAgregarObservacion.addEventListener('submit', function(event) {
-                    event.preventDefault();
-                    
-                    const reporteId = document.getElementById('reporte_360_id_obs').value;
-                    const observadorNombre = document.getElementById('observador_nombre').value.trim();
-                    const observacionTexto = document.getElementById('observacion_texto').value.trim();
-                    const tipoEntidad = document.getElementById('tipo_entidad_obs').value;
-                    const nombreEntidad = document.getElementById('nombre_entidad_obs').value;
-
-                    if (!reporteId || !observadorNombre || !observacionTexto || !tipoEntidad || !nombreEntidad) {
-                        alert('Por favor, complete todos los campos: Nombre del observador y texto de la observación.');
-                        return;
-                    }
-
-                    const payload = {
-                        reporte_360_id: reporteId,
-                        observador_nombre: observadorNombre,
-                        observacion_texto: observacionTexto,
-                        tipo_entidad: tipoEntidad,
-                        nombre_entidad: nombreEntidad
-                    };
-
-                    const submitButton = formAgregarObservacion.querySelector('button[type="submit"]');
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Guardando...';
-                    if(notificacionDiv) notificacionDiv.textContent = '';
-
-
-                    fetch("{{ url_for('main.api_add_observacion_reporte_360') }}", {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(payload)
-                    })
-                    .then(response => {
-                        submitButton.disabled = false;
-                        submitButton.innerHTML = '<i class="fas fa-plus-circle mr-1"></i> Guardar Observación';
-                        if (!response.ok) {
-                            return response.json().then(err => { throw new Error(err.error || `Error del servidor: ${response.status}`) });
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (data.error) {
-                            throw new Error(data.error);
-                        }
-                        if (notificacionDiv) {
-                            notificacionDiv.textContent = data.message || 'Observación guardada con éxito.';
-                            notificacionDiv.className = 'text-xs mt-2 h-4 text-green-600';
-                            setTimeout(() => { notificacionDiv.textContent = ''; }, 4000);
-                        }
-                        
-                        document.getElementById('observacion_texto').value = '';
-                        // Opcional: no limpiar el nombre del observador para facilitar múltiples registros
-                        // document.getElementById('observador_nombre').value = ''; 
-
-                        if (listaObservacionesDiv && data.observaciones) {
-                            renderObservaciones(data.observaciones);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error al guardar observación:', error);
-                        if (notificacionDiv) {
-                            notificacionDiv.textContent = `Error: ${error.message}`;
-                            notificacionDiv.className = 'text-xs mt-2 h-4 text-red-600';
-                        }
-                    });
-                });
-            }
-
-            function renderObservaciones(observaciones) {
-                if (!listaObservacionesDiv) return;
-                listaObservacionesDiv.innerHTML = ''; 
-
-                if (observaciones && observaciones.length > 0) {
-                    observaciones.forEach(obs => {
-                        const obsItemDiv = document.createElement('div');
-                        obsItemDiv.className = 'observacion-item pb-2 border-b border-slate-300 last:border-b-0';
-                        
-                        const metaP = document.createElement('p');
-                        metaP.className = 'text-xs text-slate-500 mb-1';
-                        metaP.innerHTML = `
-                            <i class="far fa-calendar-alt mr-1"></i> ${obs.timestamp}
-                            <span class="mx-1">|</span>
-                            <i class="fas fa-user mr-1"></i> Por: <strong class="font-medium">${escapeHtml(obs.observador_nombre)}</strong>
-                        `;
-                        
-                        const textoDiv = document.createElement('div');
-                        textoDiv.className = 'text-sm text-slate-700 prose prose-sm max-w-none';
-                        textoDiv.innerHTML = obs.observacion_html; 
-
-                        obsItemDiv.appendChild(metaP);
-                        obsItemDiv.appendChild(textoDiv);
-                        listaObservacionesDiv.appendChild(obsItemDiv);
-                    });
-                } else {
-                    listaObservacionesDiv.innerHTML = '<p class="text-sm text-slate-500 italic">No hay observaciones registradas para este reporte todavía.</p>';
-                }
-            }
-            
-            function escapeHtml(unsafe) {
-                if (typeof unsafe !== 'string') return '';
-                return unsafe
-                     .replace(/&/g, "&amp;")
-                     .replace(/</g, "&lt;")
-                     .replace(/>/g, "&gt;")
-                     .replace(/"/g, "&quot;")
-                     .replace(/'/g, "&#039;");
-            }
-        });
-    </script>
+    <!-- Scripts de observaciones eliminados según requerimiento: no se registran ni muestran observaciones dentro del Reporte 360. -->
 {% endblock scripts %}

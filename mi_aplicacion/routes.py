@@ -44,6 +44,7 @@ from .app_logic import (
     save_reporte_360_to_db,
     get_historical_reportes_360_for_entity,
     save_observation_for_reporte_360,
+    save_observation_for_entity,
     save_data_snapshot_to_db,
     get_student_evolution_summary,
     get_attendance_evolution_summary,
@@ -1613,7 +1614,12 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                 plan_data = cursor.fetchone()
                 
                 if plan_data:
-                    plan_html_content = markdown.markdown(plan_data['follow_up_comment'])
+                    # Renderizar el Markdown del plan histórico con las mismas extensiones que usamos al generarlo
+                    # (sin 'nl2br' para evitar saltos forzados y mejorar la justificación en "Fundamentación").
+                    plan_html_content = markdown.markdown(
+                        plan_data['follow_up_comment'],
+                        extensions=['fenced_code', 'tables', 'sane_lists']
+                    )
                     # --- INICIO: MODIFICACIÓN ---
                     # Convertir el timestamp de la BD (UTC) a Santiago
                     try:
@@ -1733,7 +1739,7 @@ def biblioteca_reportes():
     base_query = """
         SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
         FROM follow_ups
-        WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan')
+        WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan' OR follow_up_type = 'observacion_entidad')
         AND related_filename = ?
     """
     
@@ -1784,6 +1790,92 @@ def biblioteca_reportes():
                            filename=current_filename,
                            tipo_entidad=search_tipo,
                            nombre_entidad=search_nombre)
+
+@main_bp.route('/registrar_observacion')
+def registrar_observacion():
+    if not session.get('current_file_path'):
+        flash('Primero debes cargar un archivo CSV para registrar observaciones.', 'warning')
+        return redirect(url_for('main.index'))
+    page_title = 'Registrar Observación'
+    current_filename = session.get('uploaded_filename')
+    # Prefill desde el selector de entidad (opcional)
+    pre_tipo = request.args.get('tipo_entidad')
+    pre_nombre = request.args.get('nombre_entidad')
+    return render_template('registrar_observacion.html', page_title=page_title, filename=current_filename,
+                           pre_tipo_entidad=pre_tipo, pre_nombre_entidad=pre_nombre)
+
+@main_bp.route('/api/add_observacion_entidad', methods=['POST'])
+def api_add_observacion_entidad():
+    try:
+        data = request.json or {}
+        entity_type = data.get('tipo_entidad')
+        entity_name = data.get('nombre_entidad')
+        observer_name = data.get('observador_nombre')
+        observation_text = data.get('observacion_texto')
+        current_csv_filename = session.get('uploaded_filename')
+
+        if not all([entity_type, entity_name, observer_name, observation_text, current_csv_filename]):
+            return jsonify({"error": "Faltan datos para guardar la observación."}), 400
+
+        db_path = current_app.config['DATABASE_FILE']
+        ok = save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, current_csv_filename)
+        if not ok:
+            return jsonify({"error": "Error interno al guardar la observación."}), 500
+
+        updated_index = False
+        if embedding_model_instance:
+            updated_index = reload_followup_vector_store(current_app.config)
+
+        msg = 'Observación guardada.'
+        if embedding_model_instance and updated_index:
+            msg += ' Índice RAG actualizado.'
+        elif not embedding_model_instance:
+            msg += ' Índice RAG no actualizado (modelo embeddings no disponible).'
+        elif embedding_model_instance and not updated_index:
+            msg += ' Hubo un error al actualizar el índice RAG.'
+
+        return jsonify({"message": msg}), 201
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Excepción al guardar la observación: {str(e)}"}), 500
+
+@main_bp.route('/ver_observacion/<int:obs_id>')
+def ver_observacion(obs_id):
+    db_path = current_app.config['DATABASE_FILE']
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM follow_ups WHERE id = ? AND follow_up_type = 'observacion_entidad'", (obs_id,))
+            obs_row = cursor.fetchone()
+        if not obs_row:
+            flash('No se encontró la observación solicitada.', 'warning')
+            return redirect(url_for('main.biblioteca_reportes'))
+
+        observacion_markdown = obs_row['follow_up_comment']
+        observacion_html = markdown.markdown(observacion_markdown, extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
+        observador_nombre = str(obs_row['related_prompt']).replace('Observación de:', '').strip() if obs_row['related_prompt'] else 'N/D'
+        # Convertir timestamp a horario local
+        try:
+            naive_dt = datetime.datetime.strptime(obs_row['timestamp'], '%Y-%m-%d %H:%M:%S')
+            utc_dt = pytz.utc.localize(naive_dt)
+            santiago_dt = utc_dt.astimezone(_get_tz())
+            ts_form = santiago_dt.strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            ts_form = obs_row.get('timestamp', '')
+
+        return render_template('ver_observacion.html',
+                               page_title=f"Observación - {obs_row['related_entity_name']}",
+                               observacion_html=observacion_html,
+                               observacion_markdown=observacion_markdown,
+                               observador_nombre=observador_nombre,
+                               tipo_entidad=obs_row['related_entity_type'],
+                               nombre_entidad=obs_row['related_entity_name'],
+                               timestamp_formateado=ts_form)
+    except Exception as e:
+        traceback.print_exc()
+        flash(f'Error al cargar la observación: {e}', 'danger')
+        return redirect(url_for('main.biblioteca_reportes'))
 
 @main_bp.route('/reporte_360/ver/<int:reporte_id>')
 def ver_reporte_360(reporte_id):

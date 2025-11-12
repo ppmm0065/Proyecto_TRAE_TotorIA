@@ -49,8 +49,9 @@
     }
 
     .ia-plan-content ul { /* Para las estrategias */
-        list-style: none;
+        list-style: none !important; /* Evita discos en todos los niveles */
         padding-left: 0;
+        margin-left: 0;
     }
     .ia-plan-content ul > li { /* Contenedor de una estrategia */
         background-color: #f9fafb; /* gray-50 */
@@ -95,6 +96,13 @@
         text-justify: inter-word;
         hyphens: auto;
     }
+    /* Fuerza que todo el contenido después del título (Acción/Fundamentación) fluya en línea */
+    .ia-plan-content ul > li > ul > li > *:not(strong) {
+        display: inline;
+        margin: 0;
+        vertical-align: baseline;
+        white-space: normal;
+    }
     /* Unificar párrafos consecutivos dentro de cada item (evita saltos artificiales en Fundamentación) */
     .ia-plan-content ul > li > ul > li p {
         display: inline;
@@ -103,25 +111,25 @@
     .ia-plan-content ul > li > ul > li p + p::before {
         content: " "; /* Inserta espacio entre párrafos unidos */
     }
-    /* NUEVO: Cuando el contenido de 'Acción' o 'Fundamentación' incluye listas anidadas, forzar flujo continuo */
-    .ia-plan-content ul > li > ul > li > ul,
-    .ia-plan-content ul > li > ul > li > ol {
-        list-style: none;
+    /* Cuando el contenido incluye listas anidadas, forzar flujo continuo */
+    .ia-plan-content ul > li > ul > li ul,
+    .ia-plan-content ul > li > ul > li ol {
+        list-style: none !important;
         padding-left: 0;
         margin: 0;
     }
-    .ia-plan-content ul > li > ul > li > ul > li,
-    .ia-plan-content ul > li > ul > li > ol > li {
+    .ia-plan-content ul > li > ul > li ul > li,
+    .ia-plan-content ul > li > ul > li ol > li {
         display: inline;
         margin: 0;
     }
-    .ia-plan-content ul > li > ul > li > ul > li + li::before,
-    .ia-plan-content ul > li > ul > li > ol > li + li::before {
-        content: " "; /* espacio entre elementos de lista unidos */
+    .ia-plan-content ul > li > ul > li ul > li + li::before,
+    .ia-plan-content ul > li > ul > li ol > li + li::before {
+        content: " "; /* espacio entre elementos unidos */
     }
-    /* Unificar cualquier bloque directo dentro del item (div, blockquote) para evitar saltos verticales */
-    .ia-plan-content ul > li > ul > li > div,
-    .ia-plan-content ul > li > ul > li > blockquote {
+    /* Bloques comunes dentro del item: mantener en flujo */
+    .ia-plan-content ul > li > ul > li div,
+    .ia-plan-content ul > li > ul > li blockquote {
         display: inline;
         margin: 0;
     }
@@ -205,63 +213,102 @@
     <script>
         console.log("Página de Visualización de Plan de Intervención cargada.");
 
-        // Normalización de saltos de línea en "Fundamentación:" generados por markdown con nl2br en planes antiguos
+        // Normalización robusta del contenido de "Acción" y "Fundamentación":
+        // 1) Reemplaza <br> por espacios.
+        // 2) Colapsa espacios múltiples.
+        // 3) Aplana listas/párrafos anidados en un flujo continuo SIN eliminar enlaces ni texto.
         (function(){
             const items = document.querySelectorAll('.ia-plan-content ul > li > ul > li');
             items.forEach(li => {
                 const title = li.querySelector('strong');
-                if (title && /Fundamentación\s*:/i.test(title.textContent)) {
-                    // Reemplaza <br> por espacios para permitir justificación correcta
-                    li.querySelectorAll('br').forEach(br => {
-                        br.replaceWith(document.createTextNode(' '));
-                    });
-                    // Colapsa espacios múltiples en nodos de texto directos
-                    li.childNodes.forEach(n => {
-                        if (n.nodeType === Node.TEXT_NODE) {
-                            n.textContent = n.textContent.replace(/\s+/g, ' ');
-                        }
-                    });
-                    // NUEVO (robusto): Aplanar contenido anidado (listas, párrafos, divs) incluso si no son hijos directos
-                    const afterTitleNodes = [];
-                    let foundTitle = false;
-                    li.childNodes.forEach(node => {
-                        if (!foundTitle && node === title) {
-                            foundTitle = true; // a partir de aquí tomamos el contenido
-                            return;
-                        }
-                        if (!foundTitle) return; // aún estamos antes del título
-                        afterTitleNodes.push(node);
-                    });
+                if (!title) return;
 
-                    if (afterTitleNodes.length) {
-                        const container = document.createElement('span');
-                        // Mantener flujo continuo: mover nodos dentro de un contenedor inline
-                        afterTitleNodes.forEach(node => {
-                            if (node.nodeType === Node.TEXT_NODE) {
-                                const txt = node.textContent.replace(/\s+/g, ' ');
-                                container.appendChild(document.createTextNode(txt));
-                            } else if (node.tagName === 'UL' || node.tagName === 'OL') {
-                                const items = node.querySelectorAll(':scope > li');
-                                items.forEach((it, idx) => {
-                                    // mover los hijos (preserva enlaces)
-                                    Array.from(it.childNodes).forEach(ch => container.appendChild(ch));
-                                    if (idx < items.length - 1) container.appendChild(document.createTextNode(' '));
-                                });
-                            } else if (node.tagName === 'P' || node.tagName === 'DIV' || node.tagName === 'BLOCKQUOTE') {
-                                Array.from(node.childNodes).forEach(ch => container.appendChild(ch));
-                                container.appendChild(document.createTextNode(' '));
-                            } else if (node.tagName === 'BR') {
-                                container.appendChild(document.createTextNode(' '));
-                            } else {
-                                container.appendChild(node); // otros nodos (ej. <a>) se preservan
-                                container.appendChild(document.createTextNode(' '));
-                            }
-                        });
-
-                        // Reemplazar todo el contenido después del <strong> por el contenedor normalizado
-                        afterTitleNodes.forEach(n => n.remove());
-                        li.appendChild(container);
+                // Utilidad: agregar texto normalizado al contenedor
+                function appendText(container, txt) {
+                    if (!txt) return;
+                    const normalized = String(txt).replace(/\s+/g, ' ');
+                    const lastChild = container.lastChild;
+                    const needsLeadingSpace = (() => {
+                        if (!lastChild) return false;
+                        // Tomar el último carácter visible del contenedor
+                        const lastChar = (lastChild.nodeType === Node.TEXT_NODE
+                            ? lastChild.textContent
+                            : lastChild.textContent || '').slice(-1);
+                        const firstChar = normalized.charAt(0);
+                        if (!lastChar) return false;
+                        // Si el último carácter es puntuación y el siguiente comienza con letra o dígito, inserta espacio
+                        if (/[\.,;:!\?\)\]\}"'»”]/.test(lastChar) && /[A-Za-zÁÉÍÓÚÜÑ0-9]/.test(firstChar)) {
+                            return true;
+                        }
+                        // Si no hay espacio entre ambos fragmentos
+                        if (!/\s/.test(lastChar) && !/\s/.test(firstChar)) {
+                            return true;
+                        }
+                        return false;
+                    })();
+                    if (needsLeadingSpace) {
+                        container.appendChild(document.createTextNode(' '));
                     }
+                    container.appendChild(document.createTextNode(normalized));
+                }
+                // Utilidad: aplanar un nodo hijo (sin perder enlaces)
+                function flattenNode(node, container) {
+                    if (!node) return;
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        appendText(container, node.textContent);
+                        return;
+                    }
+                    if (node.nodeType !== Node.ELEMENT_NODE) return;
+                    const tag = node.tagName;
+                    if (tag === 'BR') { appendText(container, ' '); return; }
+                    if (tag === 'UL' || tag === 'OL') {
+                        node.querySelectorAll(':scope > li').forEach((liItem, idx, arr) => {
+                            Array.from(liItem.childNodes).forEach(ch => flattenNode(ch, container));
+                            if (idx < arr.length - 1) appendText(container, ' ');
+                        });
+                        return;
+                    }
+                    if (tag === 'P' || tag === 'DIV' || tag === 'BLOCKQUOTE') {
+                        Array.from(node.childNodes).forEach(ch => flattenNode(ch, container));
+                        appendText(container, ' ');
+                        return;
+                    }
+                    if (tag === 'A') {
+                        // Clonar el enlace para preservar estilo y atributos
+                        const a = node.cloneNode(true);
+                        // Asegurar que el contenido interno esté normalizado
+                        const tmp = document.createElement('span');
+                        Array.from(a.childNodes).forEach(ch => flattenNode(ch, tmp));
+                        a.textContent = tmp.textContent; // reemplaza por versión normalizada
+                        container.appendChild(a);
+                        appendText(container, ' ');
+                        return;
+                    }
+                    // Para otros elementos inline (SPAN, EM, STRONG, CODE, etc.)
+                    Array.from(node.childNodes).forEach(ch => flattenNode(ch, container));
+                    appendText(container, ' ');
+                }
+
+                // 1) Sustituir <br> por espacios antes de aplanar
+                li.querySelectorAll('br').forEach(br => br.replaceWith(document.createTextNode(' ')));
+
+                // 2) Construir contenedor inline con el contenido posterior al título
+                const afterTitleNodes = [];
+                let foundTitle = false;
+                li.childNodes.forEach(n => {
+                    if (!foundTitle) {
+                        if (n === title) foundTitle = true;
+                        return;
+                    }
+                    afterTitleNodes.push(n);
+                });
+
+                if (afterTitleNodes.length) {
+                    const container = document.createElement('span');
+                    container.style.display = 'inline';
+                    afterTitleNodes.forEach(n => flattenNode(n, container));
+                    afterTitleNodes.forEach(n => n.remove());
+                    li.appendChild(container);
                 }
             });
         })();

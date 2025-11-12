@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block title %}Registrar Observación{% endblock %}
+
+{% block panel_center_content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-2xl md:text-3xl font-bold text-slate-800 mb-6">Registrar Observación</h1>
+  <p class="text-slate-600 mb-6">Archivo activo: <strong class="text-indigo-700">{{ filename }}</strong></p>
+  {% if pre_tipo_entidad and pre_nombre_entidad %}
+    <div class="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-md text-sm text-indigo-800">
+      Entidad seleccionada: <strong>{{ pre_tipo_entidad|capitalize }}</strong> — <strong>{{ pre_nombre_entidad }}</strong>
+    </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label for="tipo_entidad" class="block text-sm font-medium text-slate-700 mb-1">Tipo de Entidad</label>
+        <select id="tipo_entidad" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+          <option value="" {% if not pre_tipo_entidad %}selected{% endif %}>Seleccione...</option>
+          <option value="alumno" {% if pre_tipo_entidad=='alumno' %}selected{% endif %}>Alumno</option>
+          <option value="curso" {% if pre_tipo_entidad=='curso' %}selected{% endif %}>Curso</option>
+        </select>
+      </div>
+      <div>
+        <label for="nombre_entidad" class="block text-sm font-medium text-slate-700 mb-1">Nombre de la Entidad</label>
+        <input type="text" id="nombre_entidad" class="w-full p-2 border border-slate-300 rounded-lg" placeholder="Ej: Juan Pérez o 2°B" value="{{ pre_nombre_entidad or '' }}">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label for="observador_nombre" class="block text-sm font-medium text-slate-700 mb-1">Nombre del Observador</label>
+        <input type="text" id="observador_nombre" class="w-full p-2 border border-slate-300 rounded-lg" placeholder="Tu nombre">
+      </div>
+      <div class="flex items-end">
+        <div class="text-sm text-slate-500" id="word_counter">0 / 300 palabras</div>
+      </div>
+    </div>
+
+    <div class="mb-6">
+      <label for="observacion_texto" class="block text-sm font-medium text-slate-700 mb-1">Observación</label>
+      <textarea id="observacion_texto" rows="6" class="w-full p-3 border border-slate-300 rounded-lg" placeholder="Escribe la observación (máximo 300 palabras). Usa Markdown si lo deseas (negritas, listas, etc.)"></textarea>
+      <p class="text-xs text-slate-500 mt-2">Consejo: puedes usar Markdown básico (**, -, 1.) para dar formato; los enlaces se preservan.</p>
+    </div>
+
+    <div class="flex justify-end gap-3">
+      <a href="{{ url_for('main.biblioteca_reportes') }}" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">Ir a Biblioteca</a>
+      <button id="guardar_btn" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:bg-gray-400" disabled>Guardar Observación</button>
+    </div>
+
+    <div id="save_status" class="mt-4 text-sm"></div>
+  </div>
+</div>
+
+<script>
+  function countWords(text) {
+    return (text || '').trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  const tipoInput = document.getElementById('tipo_entidad');
+  const nombreInput = document.getElementById('nombre_entidad');
+  const observadorInput = document.getElementById('observador_nombre');
+  const textoInput = document.getElementById('observacion_texto');
+  const counterEl = document.getElementById('word_counter');
+  const saveBtn = document.getElementById('guardar_btn');
+  const statusEl = document.getElementById('save_status');
+
+  function validateForm() {
+    const valid = tipoInput.value && nombreInput.value.trim() && observadorInput.value.trim() && textoInput.value.trim();
+    saveBtn.disabled = !valid;
+  }
+
+  function updateCounter() {
+    const words = countWords(textoInput.value);
+    counterEl.textContent = `${words} / 300 palabras`;
+    if (words > 300) {
+      counterEl.classList.add('text-red-600');
+    } else {
+      counterEl.classList.remove('text-red-600');
+    }
+    validateForm();
+  }
+
+  tipoInput.addEventListener('change', validateForm);
+  nombreInput.addEventListener('input', validateForm);
+  observadorInput.addEventListener('input', validateForm);
+  textoInput.addEventListener('input', updateCounter);
+  // Prefill desde servidor: si hay valores preseleccionados, ajustar validar
+  updateCounter();
+  validateForm();
+
+  saveBtn.addEventListener('click', async () => {
+    const words = countWords(textoInput.value);
+    if (words > 300) {
+      statusEl.textContent = 'La observación supera el máximo de 300 palabras.';
+      statusEl.className = 'mt-4 text-sm text-red-600';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    statusEl.textContent = 'Guardando observación...';
+    statusEl.className = 'mt-4 text-sm text-slate-600';
+
+    try {
+      const resp = await fetch("{{ url_for('main.api_add_observacion_entidad') }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo_entidad: tipoInput.value,
+          nombre_entidad: nombreInput.value.trim(),
+          observador_nombre: observadorInput.value.trim(),
+          observacion_texto: textoInput.value.trim()
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Error al guardar');
+      statusEl.textContent = data.message || 'Observación guardada.';
+      statusEl.className = 'mt-4 text-sm text-green-600';
+    } catch (e) {
+      statusEl.textContent = `Error: ${e.message}`;
+      statusEl.className = 'mt-4 text-sm text-red-600';
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

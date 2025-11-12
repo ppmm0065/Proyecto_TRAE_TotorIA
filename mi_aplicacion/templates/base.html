@@ -358,10 +358,22 @@
                             {% else %}
                                 <li class="menu-item menu-item-disabled" title="Genera y visualiza un Plan de Intervención primero"><i class="fas fa-lightbulb fa-fw"></i><span>Generar Recursos de Apoyo</span></li>
                             {% endif %}
+                            <!-- Nuevo: Registrar Observación (abrir buscador de entidad y luego redirigir a ingreso) -->
+                            <li>
+                                <button id="open-observation-selector-btn" class="menu-item w-full text-left menu-item-action {% if 'registrar_observacion' in request.endpoint %}active{% endif %}">
+                                    <i class="fas fa-comment-dots fa-fw"></i> Registrar Observación
+                                </button>
+                            </li>
                         {% else %}
                             <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-file-invoice fa-fw"></i><span>Generar Reporte 360</span></li>
                             <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-clipboard-list fa-fw"></i><span>Generar Plan de Intervención</span></li>
                             <li class="menu-item menu-item-disabled" title="Selecciona un alumno o curso primero"><i class="fas fa-lightbulb fa-fw"></i><span>Generar Recursos de Apoyo</span></li>
+                            <!-- Nuevo: Registrar Observación (habilitado aún sin seleccionar entidad, abre buscador de entidad) -->
+                            <li>
+                                <button id="open-observation-selector-btn" class="menu-item w-full text-left menu-item-action {% if 'registrar_observacion' in request.endpoint %}active{% endif %}">
+                                    <i class="fas fa-comment-dots fa-fw"></i> Registrar Observación
+                                </button>
+                            </li>
                         
                             </ul>
                         </li>
@@ -461,6 +473,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // --- NUEVAS LÍNEAS PARA GESTIONAR EL CONTEXTO ---
     const openLibraryBtn = document.getElementById('open-library-search-btn');
+    const openObservationBtn = document.getElementById('open-observation-selector-btn');
     let modalSearchContext = 'dashboard'; // Contexto por defecto
 
     let selectedEntityType = 'alumno';
@@ -483,6 +496,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     openBtn.addEventListener('click', () => openModal('dashboard'));
     openLibraryBtn.addEventListener('click', () => openModal('library'));
+    if (openObservationBtn) {
+        openObservationBtn.addEventListener('click', () => openModal('observacion'));
+    }
     // --- FIN LÓGICA DE APERTURA ---
 
     function closeModal() { if (modal) { modal.classList.add('opacity-0'); modal.querySelector('.modal-content').classList.add('-translate-y-10'); setTimeout(() => modal.classList.add('hidden'), 300); } }
@@ -515,6 +531,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Cambia el texto del botón según el contexto
             if (modalSearchContext === 'library') {
                 viewDashboardBtn.textContent = 'Ver Historial de Reportes';
+            } else if (modalSearchContext === 'observacion') {
+                viewDashboardBtn.textContent = 'Ingresar Observación';
             } else {
                 viewDashboardBtn.textContent = 'Ver Dashboard';
             }
@@ -529,6 +547,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (modalSearchContext === 'library') {
                     // Nueva URL para la biblioteca filtrada
                     const baseUrl = "{{ url_for('main.biblioteca_reportes') }}";
+                    finalUrl = `${baseUrl}?tipo_entidad=${selectedEntityType}&nombre_entidad=${encodeURIComponent(selectedEntityValue)}`;
+                } else if (modalSearchContext === 'observacion') {
+                    // Redirigir a la ventana de ingreso de observación con la entidad preseleccionada
+                    const baseUrl = "{{ url_for('main.registrar_observacion') }}";
                     finalUrl = `${baseUrl}?tipo_entidad=${selectedEntityType}&nombre_entidad=${encodeURIComponent(selectedEntityValue)}`;
                 } else {
                     // Lógica existente para ir al dashboard

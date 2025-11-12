@@ -776,53 +776,101 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     if entity_type and entity_name:
         retrieved_context_followup_header = f"Historial de Seguimiento Específico para {entity_type.capitalize()} '{entity_name}'"
 
-    # ... (bloque 'try' de RAG Institucional y Follow-up no cambia) ...
-    if not is_reporte_360 and not is_plan_intervencion: 
-        if not final_user_instruction: 
-             final_user_instruction = default_analysis_prompt
-        if vs_inst: # Institutional context vector store
-            try:
-                # ... (código interno de búsqueda RAG institucional) ...
-                relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
-                if relevant_docs_inst:
-                    context_list = [f"--- Contexto Inst. {i+1} (Fuente: {os.path.basename(doc.metadata.get('source', 'Unknown'))}) ---\n{doc.page_content}\n" for i, doc in enumerate(relevant_docs_inst)]
-                    retrieved_context_inst = "\n".join(context_list)
-                else: retrieved_context_inst = "No se encontró contexto institucional relevante para esta consulta."
-            except Exception as e: retrieved_context_inst = f"Error al buscar contexto institucional: {e}"
-        
-        relevant_docs_fu_final = []
+    # --- RAG institucional y de seguimientos: ahora también para Reporte 360 y Plan de Intervención ---
+    # Siempre intentamos recuperar contexto RAG; la inclusión en el prompt dependerá del modo.
+    if not final_user_instruction:
+         final_user_instruction = default_analysis_prompt
+    # Recuperación de contexto institucional
+    if vs_inst:
         try:
-            # ... (código interno de búsqueda RAG de seguimiento (reportes/obs)) ...
-            if entity_type and entity_name: 
-                # ... (lógica de RAG específico de entidad) ...
-                all_db_followups_as_lc_docs = load_follow_ups_as_documents(current_app.config['DATABASE_FILE'])
-                # ... (resto de lógica de filtrado y búsqueda RAG) ...
-                if not relevant_docs_fu_final:
-                    retrieved_context_followup = f"No se encontraron seguimientos específicos para {entity_type.capitalize()} '{entity_name}' que sean relevantes para la consulta actual."
-            
-            else: # General search (no entity specified) - use the global vs_followup
-                if vs_followup:
-                    relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
-                    # ... (resto de lógica RAG general) ...
-                else:
-                    retrieved_context_followup = "El índice de historial de seguimiento no está disponible actualmente (vs_followup is None)."
-
-            if relevant_docs_fu_final:
-                # ... (lógica de formato de context_list_fu) ...
-                context_list_fu = [
-                    f"--- Documento Histórico Relevante {i+1} "
-                    f"(Tipo: {str(doc.metadata.get('follow_up_type','N/A')).replace('_',' ').capitalize()}, "
-                    f"ID: {doc.metadata.get('id','N/A')}, "
-                    f"Entidad: {doc.metadata.get('related_entity_type','N/A')}-{doc.metadata.get('related_entity_name','N/A')}, "
-                    f"Fecha: {str(doc.metadata.get('timestamp','')).split(' ')[0]}) ---\n"
-                    f"{doc.page_content}\n" 
-                    for i, doc in enumerate(relevant_docs_fu_final)
+            relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
+            if relevant_docs_inst:
+                context_list = [
+                    f"--- Contexto Inst. {i+1} (Fuente: {os.path.basename(doc.metadata.get('source', 'Unknown'))}) ---\n{doc.page_content}\n"
+                    for i, doc in enumerate(relevant_docs_inst)
                 ]
-                retrieved_context_followup = "\n".join(context_list_fu)
-        
-        except Exception as e_followup_retrieval: 
-            retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
-            traceback.print_exc()
+                retrieved_context_inst = "\n".join(context_list)
+            else:
+                retrieved_context_inst = "No se encontró contexto institucional relevante para esta consulta."
+        except Exception as e:
+            retrieved_context_inst = f"Error al buscar contexto institucional: {e}"
+    
+    # Recuperación de contexto de seguimientos/reportes/observaciones
+    relevant_docs_fu_final = []
+    try:
+        if entity_type and entity_name:
+            # Cargar todos los follow-ups desde la BD como Document
+            all_db_followups_as_lc_docs = load_follow_ups_as_documents(current_app.config['DATABASE_FILE'])
+
+            # Normalizar y filtrar por entidad
+            def _norm(s: str) -> str:
+                try:
+                    import unicodedata
+                    return ''.join(c for c in unicodedata.normalize('NFKD', s.lower()) if not unicodedata.combining(c)).strip()
+                except Exception:
+                    return (s or '').lower().strip()
+
+            requested_type = _norm(entity_type)
+            requested_name = _norm(entity_name)
+
+            filtered_docs = []
+            for doc in all_db_followups_as_lc_docs:
+                meta = doc.metadata or {}
+                t = _norm(str(meta.get('related_entity_type', '')))
+                n = _norm(str(meta.get('related_entity_name', '')))
+                if t == requested_type and n == requested_name:
+                    filtered_docs.append(doc)
+
+            # Construir índice temporal si es posible
+            try:
+                from langchain_community.vectorstores import FAISS as _FAISS
+            except Exception:
+                _FAISS = None
+
+            k_fu = num_relevant_chunks_config
+
+            if filtered_docs:
+                if 'embedding_model_instance' in globals() and embedding_model_instance is not None and _FAISS is not None:
+                    try:
+                        temp_index = _FAISS.from_documents(filtered_docs, embedding_model_instance)
+                        relevant_docs_fu_final = temp_index.similarity_search(final_user_instruction, k=k_fu)
+                    except Exception:
+                        relevant_docs_fu_final = []
+
+                if not relevant_docs_fu_final:
+                    # Fallback simple por coincidencias
+                    prompt_terms = [w for w in re.split(r"\W+", final_user_instruction or "") if len(w) > 2]
+                    def score(doc):
+                        text = (doc.page_content or "").lower()
+                        return sum(1 for w in prompt_terms if w.lower() in text)
+                    filtered_docs_sorted = sorted(filtered_docs, key=score, reverse=True)
+                    relevant_docs_fu_final = filtered_docs_sorted[:k_fu]
+
+            if not relevant_docs_fu_final:
+                retrieved_context_followup = (
+                    f"No se encontraron seguimientos específicos para {entity_type.capitalize()} '{entity_name}' que sean relevantes para la consulta actual."
+                )
+        else:
+            # Búsqueda general con índice global
+            if vs_followup:
+                relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
+            else:
+                retrieved_context_followup = "El índice de historial de seguimiento no está disponible actualmente (vs_followup is None)."
+
+        if relevant_docs_fu_final:
+            context_list_fu = [
+                f"--- Documento Histórico Relevante {i+1} "
+                f"(Tipo: {str(doc.metadata.get('follow_up_type','N/A')).replace('_',' ').capitalize()}, "
+                f"ID: {doc.metadata.get('id','N/A')}, "
+                f"Entidad: {doc.metadata.get('related_entity_type','N/A')}-{doc.metadata.get('related_entity_name','N/A')}, "
+                f"Fecha: {str(doc.metadata.get('timestamp','')).split(' ')[0]}) ---\n"
+                f"{doc.page_content}\n"
+                for i, doc in enumerate(relevant_docs_fu_final)
+            ]
+            retrieved_context_followup = "\n".join(context_list_fu)
+    except Exception as e_followup_retrieval:
+        retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
+        traceback.print_exc()
             
     # --- Helpers de presupuesto de prompt ---
     def _trim_to_char_budget(text: str, max_chars: int) -> str:
@@ -915,6 +963,22 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                     (_trim_to_char_budget(retrieved_context_followup, rag_fu_budget) if enable_budget else retrieved_context_followup),
                     "\n```\n---",
                 ])
+                # Directriz obligatoria: si hay entidad especificada (alumno o curso), integra la Biblioteca de Seguimiento.
+                # Enumera Observaciones, Reportes 360 y Planes de intervención, y explica la incidencia global para la entidad.
+                # Si no hay registros, indícalo. Evita omitir Observaciones relevantes.
+                prompt_parts.append(
+                    "Directriz obligatoria: integra registros de Biblioteca de Seguimiento (Observaciones, Reportes 360, Planes) "
+                    "y explica su incidencia global para la entidad. Si no hay registros, indícalo."
+                )
+                # Directriz obligatoria: integra y sintetiza los registros de la Biblioteca de Seguimiento del curso.
+                # Enumera en secciones: 1) Observaciones (qué, quién, fecha, asignatura si aplica), 2) Reportes 360 relevantes,
+                # 3) Planes de intervención relevantes. Para cada Observación, explica su incidencia en el estado global del curso
+                # (patrones/tendencias, riesgos y recomendaciones). Si no hay registros, indícalo explícitamente.
+                prompt_parts.append(
+                    "Directriz obligatoria: integra y sintetiza los registros de la Biblioteca de Seguimiento del curso. "
+                    "Enumera Observaciones, Reportes 360 y Planes de intervención; explica incidencia global del curso; "
+                    "si no hay registros, indícalo."
+                )
             else:
                 # CSV-FIRST para consultas generales y de alumno:
                 # Priorizar SIEMPRE el CSV (datos objetivos numéricos) al inicio;
@@ -964,7 +1028,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             "Instrucción Específica del Usuario (Pregunta Actual o Solicitud):\n", f'"{final_user_instruction}"', "\n---",
         ])
 
-        if not is_direct_chat_query and not is_reporte_360 and not is_plan_intervencion:
+        if not is_direct_chat_query and not is_reporte_360 and not is_plan_intervencion: 
             prompt_parts.append(current_app.config.get('GEMINI_FORMATTING_INSTRUCTIONS', "Formatea tu respuesta claramente en Markdown."))
         elif is_direct_chat_query:
             pass 
@@ -979,6 +1043,22 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                 )
             except Exception:
                 pass
+
+        # Para Reporte 360 y Plan de Intervención, añadir explícitamente el contexto RAG al prompt
+        if is_reporte_360 or is_plan_intervencion:
+            prompt_parts.append(
+                "Contexto Institucional Relevante (fragmentos recuperados por RAG):\n``\n"
+            )
+            prompt_parts.append(_trim_to_char_budget(retrieved_context_inst, rag_inst_budget) if enable_budget else retrieved_context_inst)
+            prompt_parts.append("\n```\n---")
+
+            prompt_parts.append(
+                f"{retrieved_context_followup_header} (si se encontraron documentos/observaciones relevantes):\n``\n"
+            )
+            prompt_parts.append(_trim_to_char_budget(retrieved_context_followup, rag_fu_budget) if enable_budget else retrieved_context_followup)
+            prompt_parts.append("\n```\n---")
+
+            final_prompt_string = "\n".join(filter(None, prompt_parts))
 
         response = model.generate_content(final_prompt_string)
         
@@ -1197,6 +1277,44 @@ def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_
         traceback.print_exc()
         return False
 
+def save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, csv_filename):
+    """Guarda una observación independiente para una entidad (alumno/curso) y la deja disponible
+    para el índice FAISS de seguimientos.
+
+    Se utiliza follow_up_type='observacion_entidad'. No tiene relación directa con un reporte 360,
+    pero sí queda asociada al archivo CSV actual y a la entidad.
+    """
+    try:
+        # Validaciones básicas en servidor
+        if not all([entity_type, entity_name, observer_name, observation_text, csv_filename]):
+            print("Error: Datos incompletos al guardar observación de entidad.")
+            return False
+
+        # Limitar a 300 palabras en servidor por seguridad (además del control en cliente)
+        words = observation_text.strip().split()
+        if len(words) > 300:
+            observation_text = " ".join(words[:300])
+
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            related_prompt_text = f"Observación de: {observer_name}"
+            cursor.execute(
+                """
+                INSERT INTO follow_ups
+                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (csv_filename, related_prompt_text, None, observation_text, 'observacion_entidad', entity_type, entity_name)
+            )
+            conn.commit()
+            new_id = cursor.lastrowid
+        print(f"Observación de entidad guardada (ID: {new_id}) para {entity_type} {entity_name}, archivo: {csv_filename}.")
+        return True
+    except Exception as e:
+        print(f"Error CRÍTICO al guardar observación de entidad en la BD: {e}")
+        traceback.print_exc()
+        return False
+
 def save_data_snapshot_to_db(df, filename, db_path):
     """
     Guarda el DataFrame completo en la base de datos como una instantánea histórica.
@@ -1332,6 +1450,18 @@ def load_follow_ups_as_documents(db_path):
                         page_content += f"Archivo CSV Origen: {row['related_filename']}\n"
                     if row['related_analysis']: 
                         page_content += f"Referente a Reporte 360 ID: {row['related_analysis']}\n"
+                    page_content += f"--- INICIO OBSERVACIÓN (ID: {row['id']}) ---\n{row['follow_up_comment']}\n--- FIN OBSERVACIÓN ---"
+
+                elif row['follow_up_type'] == 'observacion_entidad':
+                    page_content = f"Tipo Documento: {follow_up_type_display}\n"
+                    page_content += f"ID Observación: {row['id']}\n"
+                    observador_nombre = str(row['related_prompt']).replace("Observación de: ", "").strip() if row['related_prompt'] else "Usuario Desconocido"
+                    page_content += f"Observador: {observador_nombre}\n"
+                    page_content += f"Registrada: {row['timestamp']}\n"
+                    if row['related_entity_type'] and row['related_entity_name']:
+                        page_content += f"Entidad Observada: {str(row['related_entity_type']).capitalize()} - {row['related_entity_name']}\n"
+                    if row['related_filename']:
+                        page_content += f"Archivo CSV Origen: {row['related_filename']}\n"
                     page_content += f"--- INICIO OBSERVACIÓN (ID: {row['id']}) ---\n{row['follow_up_comment']}\n--- FIN OBSERVACIÓN ---"
                 
                 else: 
@@ -1926,10 +2056,12 @@ def generate_intervention_plan_with_gemini(reporte_360_markdown, tipo_entidad, n
         nombre_entidad=nombre_entidad
     )
     
+    # IMPORTANTE: Pasar el índice institucional (vector_store) para habilitar citas RAG
+    # en la sección de "Fundamentación" del plan.
     analysis_result = analyze_data_with_gemini(
         data_string=reporte_360_markdown, 
         user_prompt=prompt_plan, 
-        vs_inst=None, 
+        vs_inst=vector_store, 
         vs_followup=vector_store_followups, 
         chat_history_string="", 
         is_reporte_360=False, 

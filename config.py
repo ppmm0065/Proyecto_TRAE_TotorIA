@@ -89,6 +89,11 @@ Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empodera
     ### Sugerencia Clave
     * [Basado en los desafíos, proporciona una recomendación principal o un próximo paso sugerido, fundamentado en un modelo pedagógico reconocido.]
 
+    ### Fundamentación y Referencias Institucionales
+    * Cuando cites modelos pedagógicos, verifica y utiliza el contexto institucional recuperado (RAG) para fundamentar la sugerencia.
+    * Evalúa explícitamente si los documentos institucionales mencionan modelos de Finlandia, Canadá, Corea del Sur, Singapur y del Reino Unido ("modelo británico"/"Inglaterra"). Si existen menciones, cítalas brevemente indicando el nombre del archivo (p. ej., MODELO_EDUCATIVO_BRITANICO.pdf) y un extracto corto.
+    * Si NO se encuentran menciones al "modelo británico" en los documentos institucionales cargados, indícalo explícitamente con un aviso breve: "No se hallaron referencias al modelo británico en los documentos institucionales proporcionados para esta consulta".
+
     Sigue el rol y las directrices generales definidas en GEMINI_SYSTEM_ROLE_PROMPT.
     """
 
@@ -109,10 +114,10 @@ Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empodera
     ### Acciones y Estrategias Sugeridas
     * **[Nombre de la Estrategia 1]:**
         * **Acción:** [Paso concreto y práctico a implementar].
-        * **Fundamentación:** [Breve mención al estudio o teoría pedagógica que la respalda. Ej: Modelo Finlandés, Teoría de Gardner, etc.].
+        * **Fundamentación:** [Menciona explícitamente el modelo o principio pedagógico que sustenta la acción (ej., teoría sociocultural de Vygotsky; enfoque constructivista de Finlandia; aprendizaje colaborativo inspirado en Singapur; "modelo británico"). Cita un fragmento RELEVANTE recuperado por RAG de los documentos institucionales (incluye el nombre del archivo, p. ej., MODELO_EDUCATIVO_BRITANICO.pdf, y un breve extracto). Si el RAG no devuelve referencias pertinentes, indícalo brevemente al cierre de la fundamentación: "No se encontraron referencias institucionales pertinentes para esta acción".]
     * **[Nombre de la Estrategia 2]:**
         * **Acción:** [Paso concreto y práctico a implementar].
-        * **Fundamentación:** [Breve mención al estudio o teoría pedagógica que la respalda].
+        * **Fundamentación:** [Menciona explícitamente el modelo o principio pedagógico y cita el documento institucional recuperado por RAG.]
     * ...
     """
     GEMINI_FORMATTING_INSTRUCTIONS = """**SOLO CUANDO SE SOLICITE UN ANÁLISIS ESTRUCTURADO (NO PARA PREGUNTAS DIRECTAS EN CHAT)**, formatea tu respuesta utilizando Markdown de la siguiente manera:
