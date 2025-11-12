@@ -395,6 +395,35 @@
                                 </li>
                             </ul>
                         </li>
+
+                        <!-- NUEVO Submenú: Consumo de Tokens -->
+                        <li class="submenu">
+                            <div class="submenu-title">Consumo</div>
+                            <ul>
+                                <li>
+                                    <div class="menu-item">
+                                        <i class="fas fa-coins fa-fw"></i>
+                                        <div class="flex flex-col">
+                                            <span class="text-xs text-slate-500">Hoy</span>
+                                            <span class="text-sm">
+                                                <span id="daily-total-tokens" class="font-mono">-</span> tokens • US$ <span id="daily-total-cost" class="font-mono">0.000000</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="menu-item">
+                                        <i class="fas fa-calendar-days fa-fw"></i>
+                                        <div class="flex flex-col">
+                                            <span class="text-xs text-slate-500">Mes</span>
+                                            <span class="text-sm">
+                                                <span id="monthly-total-tokens" class="font-mono">-</span> tokens • US$ <span id="monthly-total-cost" class="font-mono">0.000000</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </li>
+                            </ul>
+                        </li>
                     </ul>
                 </nav>
             </div>
@@ -509,6 +538,32 @@ document.addEventListener('DOMContentLoaded', function() {
     tabCurso.addEventListener('click', () => { selectedEntityType = 'curso'; contentCurso.classList.remove('hidden'); contentAlumno.classList.add('hidden'); tabCurso.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-indigo-500 text-indigo-600'; tabAlumno.className = 'px-3 py-2 font-medium text-sm rounded-t-lg border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'; validateSelection(); });
 
     function loadCoursesToModal() { fetch("{{ url_for('main.api_get_courses') }}").then(res => res.json()).then(data => { courseSelect.innerHTML = '<option value="" selected disabled>-- Selecciona un curso --</option>'; data.forEach(course => { const option = document.createElement('option'); option.value = course; option.textContent = course; courseSelect.appendChild(option); }); }); }
+
+    // === NUEVO: Cargar totales de consumo (día y mes) en el menú lateral ===
+    function cargarTotalesConsumo() {
+        try {
+            fetch("{{ url_for('main.api_consumo_totales') }}")
+                .then(res => res.json())
+                .then(data => {
+                    if (!data || data.error) return;
+                    const dia = data.dia || {};
+                    const mes = data.mes || {};
+                    const dTokensEl = document.getElementById('daily-total-tokens');
+                    const dCostEl = document.getElementById('daily-total-cost');
+                    const mTokensEl = document.getElementById('monthly-total-tokens');
+                    const mCostEl = document.getElementById('monthly-total-cost');
+                    if (dTokensEl) dTokensEl.textContent = (dia.total_tokens || 0).toLocaleString('en-US');
+                    if (dCostEl) dCostEl.textContent = (dia.costo_total || 0).toFixed(6);
+                    if (mTokensEl) mTokensEl.textContent = (mes.total_tokens || 0).toLocaleString('en-US');
+                    if (mCostEl) mCostEl.textContent = (mes.costo_total || 0).toFixed(6);
+                })
+                .catch(() => {/* silencioso */});
+        } catch (e) { /* silencioso */ }
+    }
+    // Cargar una vez al iniciar la página
+    cargarTotalesConsumo();
+    // Opcional: refrescar cada cierto tiempo por si hay actividad
+    setInterval(cargarTotalesConsumo, 60_000);
     
     studentInput.addEventListener('input', () => { clearTimeout(studentSearchDebounceTimer); const searchTerm = studentInput.value.trim(); selectedEntityValue = ''; validateSelection(); if (searchTerm.length < 2) { studentSuggestions.innerHTML = ''; return; } studentSuggestions.innerHTML = '<div class="p-2 text-sm text-slate-500">Buscando...</div>'; studentSearchDebounceTimer = setTimeout(() => { fetch(`{{ url_for('main.api_search_students') }}?term=${encodeURIComponent(searchTerm)}`).then(res => res.json()).then(data => { studentSuggestions.innerHTML = ''; if (data.length > 0) { data.forEach(name => { const div = document.createElement('div'); div.className = 'p-2 text-sm cursor-pointer hover:bg-indigo-50'; div.textContent = name; div.addEventListener('click', () => { studentInput.value = name; selectedEntityValue = name; studentSuggestions.innerHTML = ''; validateSelection(); }); studentSuggestions.appendChild(div); }); } else { studentSuggestions.innerHTML = '<div class="p-2 text-sm text-slate-500">No se encontraron estudiantes.</div>'; } }); }, 350); });
     

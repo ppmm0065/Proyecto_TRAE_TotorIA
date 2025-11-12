@@ -1961,3 +1961,49 @@ def api_delete_context_doc():
             return jsonify({"error": "El archivo no fue encontrado."}), 404
     except Exception as e:
         return jsonify({"error": f"Error al eliminar el archivo: {e}"}), 500
+
+# --- NUEVO: Endpoint para totales de consumo de tokens y costos (hoy y mes) ---
+@main_bp.route('/api/consumo/totales')
+def api_consumo_totales():
+    """Devuelve los totales acumulados de tokens y costos para el día actual y el mes actual.
+    Respuesta JSON con dos bloques: 'dia' y 'mes'. Cada bloque incluye tokens_subida,
+    tokens_bajada, total_tokens y costo_total.
+    """
+    try:
+        db_path = current_app.config['DATABASE_FILE']
+        hoy = datetime.date.today()
+        fecha_hoy = hoy.isoformat()
+        inicio_mes = hoy.replace(day=1).isoformat()
+
+        def _sum_query(conn, fecha_ini: str, fecha_fin: str):
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT 
+                    COALESCE(SUM(tokens_subida), 0) as subida,
+                    COALESCE(SUM(tokens_bajada), 0) as bajada,
+                    COALESCE(SUM(costo_total), 0.0) as costo
+                FROM consumo_tokens_diario
+                WHERE fecha >= ? AND fecha <= ?
+                """,
+                (fecha_ini, fecha_fin)
+            )
+            row = cur.fetchone()
+            subida = int(row[0] or 0)
+            bajada = int(row[1] or 0)
+            costo = float(row[2] or 0.0)
+            return {
+                'tokens_subida': subida,
+                'tokens_bajada': bajada,
+                'total_tokens': subida + bajada,
+                'costo_total': costo
+            }
+
+        with sqlite3.connect(db_path) as conn:
+            totals_dia = _sum_query(conn, fecha_hoy, fecha_hoy)
+            totals_mes = _sum_query(conn, inicio_mes, fecha_hoy)
+
+        return jsonify({'dia': totals_dia, 'mes': totals_mes})
+    except Exception as e:
+        current_app.logger.exception(f"Error al obtener totales de consumo: {e}")
+        return jsonify({"error": "No se pudieron obtener los totales de consumo."}), 500
