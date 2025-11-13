@@ -103,23 +103,23 @@
                         </ul>
                     </div>
                 {% endif %}
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4"> 
-                     <div class="bg-slate-50 rounded-lg shadow border border-red-200 hover:bg-red-100 transition-colors duration-200">
+                <!-- Cuatro tarjetas uniformes bajo el mismo título -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <!-- Alumno con menor rendimiento (General) -->
+                    <div class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md">
                         {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
                         {% endif %}
-                                <h3 class="text-sm font-medium text-red-700 uppercase tracking-wider mb-1 flex items-center">
-                                    <i class="fas fa-arrow-down-short-wide mr-2"></i>Alumno con Menor Rendimiento (General)
+                                <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
+                                    <i class="fas fa-arrow-down-short-wide text-slate-500 mr-2"></i> Alumno con Menor Rendimiento (General)
                                 </h3>
                                 {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
-                                    <p class="text-lg font-semibold text-red-900">{{ session.file_summary.alumno_menor_promedio.nombre }}</p>
-                                    <p class="text-sm text-red-700">
-                                        Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | nota_un_decimal if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}
-                                    </p>
+                                    <p class="text-base font-semibold text-slate-900">{{ session.file_summary.alumno_menor_promedio.nombre }}</p>
+                                    <p class="text-sm text-slate-700">Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | nota_un_decimal if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}</p>
                                 {% else %}
-                                    <p class="text-sm text-red-700 italic">No disponible.</p>
+                                    <p class="text-sm text-slate-700 italic">No disponible.</p>
                                 {% endif %}
                         {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                             </a>
@@ -127,22 +127,22 @@
                             </div>
                         {% endif %}
                     </div>
-                    <div class="bg-slate-50 rounded-lg shadow border border-orange-200 hover:bg-orange-100 transition-colors duration-200">
+
+                    <!-- Curso con menor rendimiento (General) -->
+                    <div class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md">
                         {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
                         {% endif %}
-                                <h3 class="text-sm font-medium text-orange-700 uppercase tracking-wider mb-1 flex items-center">
-                                    <i class="fas fa-chart-simple mr-2"></i>Curso con Menor Rendimiento (General)
+                                <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
+                                    <i class="fas fa-chart-simple text-slate-500 mr-2"></i> Curso con Menor Rendimiento (General)
                                 </h3>
                                 {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
-                                    <p class="text-lg font-semibold text-orange-900">{{ session.file_summary.curso_menor_promedio.nombre }}</p>
-                                    <p class="text-sm text-orange-700">
-                                        Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | nota_un_decimal if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}
-                                    </p>
+                                    <p class="text-base font-semibold text-slate-900">{{ session.file_summary.curso_menor_promedio.nombre }}</p>
+                                    <p class="text-sm text-slate-700">Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | nota_un_decimal if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}</p>
                                 {% else %}
-                                     <p class="text-sm text-orange-700 italic">No disponible.</p>
+                                    <p class="text-sm text-slate-700 italic">No disponible.</p>
                                 {% endif %}
                         {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                             </a>
@@ -150,31 +150,22 @@
                             </div>
                         {% endif %}
                     </div>
-                </div>
-                <div class="pt-4"> 
-                    <h3 class="text-md font-semibold text-slate-700 mb-3 text-center">
-                        <i class="fas fa-bell text-yellow-500 mr-1"></i> Alertas Detalladas por Nivel
-                    </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <button id="btn-alerta-promedio" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 flex items-center justify-center text-sm">
-                                <i class="fas fa-chart-line-down mr-2"></i> Alumnos con Menor Promedio por Nivel (Detalle)
-                                <i id="icon-promedio-alerta" class="fas fa-chevron-down ml-auto transition-transform"></i>
-                            </button>
-                            <div id="lista-alerta-promedio" class="hidden mt-2 p-4 bg-red-50 border border-red-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
-                                <p class="text-slate-500 italic">Cargando datos...</p>
-                            </div>
-                        </div>
-                        <div>
-                            <button id="btn-alerta-observaciones" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 flex items-center justify-center text-sm">
-                                <i class="fas fa-user-shield mr-2"></i> Alumnos con Observaciones Críticas por Nivel (Detalle)
-                                <i id="icon-observaciones-alerta" class="fas fa-chevron-down ml-auto transition-transform"></i>
-                            </button>
-                            <div id="lista-alerta-observaciones" class="hidden mt-2 p-4 bg-red-50 border border-red-200 rounded-lg shadow max-h-60 overflow-y-auto custom-scrollbar text-sm">
-                                <p class="text-slate-500 italic">Cargando datos...</p>
-                            </div>
-                        </div>
-                    </div>
+
+                    <!-- Alumnos con menor promedio por nivel (Detalle) -->
+                    <a href="{{ url_for('main.alertas_alumnos_menor_promedio') }}" class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md block p-4 w-full h-full">
+                        <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
+                            <i class="fas fa-chart-line-down text-slate-500 mr-2"></i> Alumnos con Menor Promedio por Nivel (Detalle)
+                        </h3>
+                        <p class="text-sm text-slate-700">Ver tarjetas agrupadas por nivel.</p>
+                    </a>
+
+                    <!-- Alumnos con Observaciones Críticas por nivel (Detalle) -->
+                    <a href="{{ url_for('main.alertas_alumnos_observaciones_criticas') }}" class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md block p-4 w-full h-full">
+                        <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
+                            <i class="fas fa-user-shield text-slate-500 mr-2"></i> Alumnos con Observaciones Críticas por Nivel (Detalle)
+                        </h3>
+                        <p class="text-sm text-slate-700">Ver tarjetas agrupadas por nivel.</p>
+                    </a>
                 </div>
             </div>
         </div>
