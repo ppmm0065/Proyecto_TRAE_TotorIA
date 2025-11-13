@@ -13,23 +13,45 @@
       No se encontraron alumnos con observaciones críticas por nivel.
     </div>
   {% else %}
+    <!-- Toolbar de ordenación y filtrado (solo UI, sin cambiar backend) -->
+    <div class="sticky top-2 z-10 mb-4 bg-white/80 backdrop-blur rounded-md border border-slate-200 p-3 flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2">
+        <label for="nivelFilter" class="text-sm text-slate-700">Nivel:</label>
+        <select id="nivelFilter" class="text-sm bg-slate-50 border border-slate-300 rounded px-2 py-1">
+          <option value="__ALL__">Todos</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <label for="nivelSort" class="text-sm text-slate-700">Orden:</label>
+        <select id="nivelSort" class="text-sm bg-slate-50 border border-slate-300 rounded px-2 py-1">
+          <option value="pedagogico" selected>Pedagógico</option>
+          <option value="asc">Ascendente (A→Z)</option>
+          <option value="desc">Descendente (Z→A)</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2 ml-auto">
+        <button id="toggleDensity" class="text-sm px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">Modo compacto</button>
+        <span id="visibleCount" class="text-xs text-slate-600">0 alumnos mostrados</span>
+      </div>
+    </div>
+
     {% if ordered_levels is defined and ordered_levels|length > 0 %}
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div id="grid-niveles" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {% for nivel in ordered_levels %}
           {% set alumnos = alertas_observaciones.get(nivel) %}
           {% if alumnos %}
-            <div class="mb-2">
+            <div class="mb-2 nivel-group" data-nivel="{{ nivel }}" data-order="{{ loop.index0 }}">
               <h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">{{ nivel }}</h2>
               <div class="space-y-2">
                 {% for alumno in alumnos %}
                   <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}" class="block">
-                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow">
+                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow student-card">
                       <div class="flex items-center justify-between mb-1">
                         <h3 class="text-sm font-semibold text-slate-800">{{ alumno.nombre }}</h3>
                         <span class="text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded-full">Obs.</span>
                       </div>
                       <p class="text-xs text-slate-600 mb-2">{{ alumno.curso_original }}</p>
-                      <p class="text-sm text-slate-700 line-clamp-2">{{ alumno.observacion }}</p>
+                      <p class="text-sm text-slate-700 line-clamp-2 obs-text">{{ alumno.observacion }}</p>
                     </div>
                   </a>
                 {% endfor %}
@@ -40,21 +62,21 @@
       </div>
     {% else %}
       {# Fallback: ordenar por clave de nivel como antes #}
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div id="grid-niveles" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {% for nivel, alumnos in alertas_observaciones|dictsort %}
           {% if alumnos %}
-            <div class="mb-2">
+            <div class="mb-2 nivel-group" data-nivel="{{ nivel }}" data-order="{{ loop.index0 }}">
               <h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">{{ nivel }}</h2>
               <div class="space-y-2">
                 {% for alumno in alumnos %}
                   <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}" class="block">
-                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow">
+                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow student-card">
                       <div class="flex items-center justify-between mb-1">
                         <h3 class="text-sm font-semibold text-slate-800">{{ alumno.nombre }}</h3>
                         <span class="text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded-full">Obs.</span>
                       </div>
                       <p class="text-xs text-slate-600 mb-2">{{ alumno.curso_original }}</p>
-                      <p class="text-sm text-slate-700 line-clamp-2">{{ alumno.observacion }}</p>
+                      <p class="text-sm text-slate-700 line-clamp-2 obs-text">{{ alumno.observacion }}</p>
                     </div>
                   </a>
                 {% endfor %}
@@ -71,5 +93,78 @@
       <i class="fas fa-arrow-left mr-2"></i> Volver al inicio
     </a>
   </div>
+  
 {% endblock %}
 
+{% block scripts %}
+  {{ super() }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const grid = document.getElementById('grid-niveles');
+      const groups = Array.from(document.querySelectorAll('.nivel-group'));
+      const selectNivel = document.getElementById('nivelFilter');
+      const selectSort = document.getElementById('nivelSort');
+      const densityBtn = document.getElementById('toggleDensity');
+      const visibleCount = document.getElementById('visibleCount');
+
+      // Poblar niveles en el selector
+      const niveles = groups.map(g => g.getAttribute('data-nivel'));
+      const uniqueNiveles = Array.from(new Set(niveles)).sort((a,b) => a.localeCompare(b));
+      uniqueNiveles.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n; opt.textContent = n; selectNivel.appendChild(opt);
+      });
+
+      function updateVisibleCount() {
+        const visibleCards = Array.from(document.querySelectorAll('.student-card')).filter(c => c.offsetParent !== null);
+        visibleCount.textContent = `${visibleCards.length} alumnos mostrados`;
+      }
+
+      function applyFilter() {
+        const v = selectNivel.value;
+        groups.forEach(g => {
+          const show = (v === '__ALL__') || (g.getAttribute('data-nivel') === v);
+          g.style.display = show ? '' : 'none';
+        });
+        updateVisibleCount();
+      }
+
+      function applySort() {
+        const mode = selectSort.value;
+        const sorted = groups.slice().sort((g1, g2) => {
+          if (mode === 'pedagogico') {
+            return Number(g1.dataset.order) - Number(g2.dataset.order);
+          }
+          const n1 = g1.dataset.nivel.toLocaleUpperCase();
+          const n2 = g2.dataset.nivel.toLocaleUpperCase();
+          const cmp = n1.localeCompare(n2);
+          return mode === 'asc' ? cmp : -cmp;
+        });
+        sorted.forEach(g => grid.appendChild(g));
+      }
+
+      let compact = true;
+      function applyDensity() {
+        const texts = document.querySelectorAll('.obs-text');
+        texts.forEach(p => {
+          if (compact) {
+            p.classList.add('line-clamp-2');
+          } else {
+            p.classList.remove('line-clamp-2');
+          }
+        });
+        densityBtn.textContent = compact ? 'Modo detallado' : 'Modo compacto';
+        compact = !compact;
+      }
+
+      selectNivel.addEventListener('change', () => { applyFilter(); });
+      selectSort.addEventListener('change', () => { applySort(); });
+      densityBtn.addEventListener('click', () => { applyDensity(); });
+
+      // Inicialización
+      applySort();
+      applyFilter();
+      updateVisibleCount();
+    });
+  </script>
+{% endblock %}
