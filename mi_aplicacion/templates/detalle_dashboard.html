@@ -261,13 +261,13 @@
         {# --- SECCIÓN DE CHAT CON GEMINI (DETALLE) --- #}
         {# --- INICIO: MODIFICACIÓN Tarjeta de Chat --- #}
         {# Convertimos la sección de chat en una tarjeta 'bg-slate-50' #}
-        <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-200">
+  <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-200 flex flex-col">
             <h2 class="text-xl font-semibold text-slate-800 mb-3">
                 <i class="fas fa-comments mr-2 text-teal-500"></i>Consultar sobre <span class="text-teal-600">{{ nombre_entidad }}</span>
             </h2>
             <div class="bg-slate-50 p-4 rounded-lg shadow-md border border-slate-200">
                 {# El historial de chat (bg-slate-50) se vuelve 'bg-white' o 'bg-slate-100' para contrastar #}
-                <div id="chat-history-detalle" class="h-64 md:h-[40vh] overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-white custom-scrollbar space-y-4">
+    <div id="chat-history-detalle" class="flex-grow h-auto min-h-[50vh] md:min-h-[60vh] overflow-y-auto mb-3 p-3 border border-slate-200 rounded-md bg-white custom-scrollbar space-y-4">
                     {% for message in chat_history_detalle %}
                         {% if message.user %}
                             <div class="user-message text-right mb-2"><p class="inline-block user-bubble text-white text-sm rounded-lg px-3 py-2 shadow"><strong>Tú:</strong> {{ message.user | replace('\n', '<br>') | safe }}</p></div>
@@ -615,10 +615,10 @@
                     // Actualiza los totales de la sesión en la UI
                     updateSessionTotals(data.consumo_sesion);
 
-                    // Expandir el área del chat y mostrar botón "Volver" tras recibir respuesta
+                    // Ajuste visual: asegurar que el contenedor crezca con el viewport
                     try {
                         chatHistoryDetalleDiv.classList.remove('h-64', 'md:h-[40vh]');
-                        chatHistoryDetalleDiv.classList.add('h-[65vh]');
+                        chatHistoryDetalleDiv.classList.add('flex-grow', 'h-auto', 'min-h-[50vh]');
                         const returnControls = document.getElementById('chat-return-controls');
                         if (returnControls) {
                             returnControls.classList.remove('hidden');
@@ -647,10 +647,10 @@
                 } catch (e) { console.warn('No se pudo mejorar mensaje existente:', e); }
             });
 
-            // Si ya hay mensajes de Gemini renderizados, expandir y mostrar Volver desde el inicio
+            // Si ya hay mensajes de Gemini renderizados, asegurar crecimiento con viewport y mostrar Volver desde el inicio
             if (chatHistoryDetalleDiv.querySelector('.gemini-message')) {
                 chatHistoryDetalleDiv.classList.remove('h-64', 'md:h-[40vh]');
-                chatHistoryDetalleDiv.classList.add('h-[65vh]');
+                chatHistoryDetalleDiv.classList.add('flex-grow', 'h-auto', 'min-h-[50vh]');
                 const returnControls = document.getElementById('chat-return-controls');
                 if (returnControls) {
                     returnControls.classList.remove('hidden');

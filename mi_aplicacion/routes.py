@@ -1,5 +1,6 @@
 # mi_aplicacion/routes.py
 import os
+import unicodedata
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, redirect, url_for, 
@@ -723,6 +724,128 @@ def api_alertas_observaciones_negativas_niveles():
         if not alertas_observaciones: return jsonify({"message": "No se encontraron alumnos con observaciones de conducta críticas según los criterios definidos."}), 200
         return jsonify(alertas_observaciones)
     except Exception as e: traceback.print_exc(); return jsonify({"error": f"Error interno al generar alerta de observaciones: {str(e)}"}), 500
+
+# --- Nueva vista: Tarjetas de alumnos con menor promedio por nivel ---
+@main_bp.route('/alertas/alumnos-menor-promedio')
+def alertas_alumnos_menor_promedio():
+    """Muestra una vista en el panel central con tarjetas por alumno (agrupadas por nivel).
+    Cada tarjeta enlaza al dashboard del alumno. No modifica la API existente ni otras vistas.
+    """
+    if not session.get('current_file_path'):
+        flash('Carga un archivo CSV.', 'warning')
+        return redirect(url_for('main.index'))
+
+    df = get_dataframe_from_session_file()
+    if df is None or df.empty:
+        flash('No hay datos disponibles para mostrar alertas.', 'warning')
+        return redirect(url_for('main.index'))
+
+    try:
+        alertas_promedio = get_alumnos_menor_promedio_por_nivel(df) or {}
+        # Si la función devolvió un error, vaciar y avisar
+        if isinstance(alertas_promedio, dict) and 'error' in alertas_promedio:
+            flash('No fue posible calcular alumnos con menor promedio por nivel. Revisa el archivo CSV y columnas de configuración.', 'warning')
+            alertas_promedio = {}
+
+        # Filtrar niveles que tengan listas válidas de alumnos
+        alertas_promedio = {k: v for k, v in alertas_promedio.items() if isinstance(v, list) and len(v) > 0}
+        # Orden explícito de cursos: 1° Básico → 8° Básico → 1° Medio → 4° Medio
+        orden_basica = [f"{i}° Básico" for i in range(1, 9)]
+        orden_media = [f"{i}° Medio" for i in range(1, 5)]
+        course_order = orden_basica + orden_media
+
+        # Normalización robusta para empatar claves del dict aunque varíe símbolo °/º o tildes/caso
+        def _norm_level(s: str) -> str:
+            if not s:
+                return ""
+            s = str(s).replace('º', '°')
+            s_nfkd = unicodedata.normalize('NFKD', s)
+            s_ascii = ''.join(c for c in s_nfkd if not unicodedata.combining(c))
+            s_ascii = s_ascii.lower().replace('°', '')
+            return ' '.join(s_ascii.split())
+
+        ordered_levels = []
+        if alertas_promedio:
+            course_order_norm = [_norm_level(x) for x in course_order]
+            present_levels_map = { _norm_level(k): k for k in alertas_promedio.keys() }
+            ordered_levels = [present_levels_map[n] for n in course_order_norm if n in present_levels_map]
+            # Añadir niveles extras que no estén en el orden predefinido, manteniendo estabilidad
+            extras = [orig for n, orig in present_levels_map.items() if n not in course_order_norm]
+            ordered_levels.extend(extras)
+    except Exception as e:
+        traceback.print_exc()
+        flash(f'Error al calcular alumnos con menor promedio: {e}', 'danger')
+        return redirect(url_for('main.index'))
+
+    return render_template(
+        'alumnos_menor_promedio_cards.html',
+        page_title='Alumnos con menor promedio por nivel',
+        alertas_promedio=alertas_promedio,
+        ordered_levels=ordered_levels,
+        course_order=course_order,
+        filename=session.get('uploaded_filename', 'N/A')
+    )
+
+# --- Nueva vista: Tarjetas de alumnos con observaciones críticas por nivel ---
+@main_bp.route('/alertas/alumnos-observaciones-criticas')
+def alertas_alumnos_observaciones_criticas():
+    """Muestra tarjetas por alumno con observaciones críticas, agrupadas por nivel.
+    Cada tarjeta enlaza al dashboard del alumno.
+    """
+    if not session.get('current_file_path'):
+        flash('Carga un archivo CSV.', 'warning')
+        return redirect(url_for('main.index'))
+
+    df = get_dataframe_from_session_file()
+    if df is None or df.empty:
+        flash('No hay datos disponibles para mostrar alertas.', 'warning')
+        return redirect(url_for('main.index'))
+
+    try:
+        alertas_observaciones = get_alumnos_observaciones_negativas_por_nivel(df) or {}
+        # Manejar posible estructura de error
+        if isinstance(alertas_observaciones, dict) and 'error' in alertas_observaciones:
+            flash('No fue posible calcular alumnos con observaciones críticas por nivel. Revisa el archivo CSV y columnas de configuración.', 'warning')
+            alertas_observaciones = {}
+
+        # Filtrar niveles con listas válidas
+        alertas_observaciones = {k: v for k, v in alertas_observaciones.items() if isinstance(v, list) and len(v) > 0}
+
+        # Orden explícito de cursos
+        orden_basica = [f"{i}° Básico" for i in range(1, 9)]
+        orden_media = [f"{i}° Medio" for i in range(1, 5)]
+        course_order = orden_basica + orden_media
+
+        # Normalización de niveles (mismo criterio que en menor promedio)
+        def _norm_level(s: str) -> str:
+            if not s:
+                return ""
+            s = str(s).replace('º', '°')
+            s_nfkd = unicodedata.normalize('NFKD', s)
+            s_ascii = ''.join(c for c in s_nfkd if not unicodedata.combining(c))
+            s_ascii = s_ascii.lower().replace('°', '')
+            return ' '.join(s_ascii.split())
+
+        ordered_levels = []
+        if alertas_observaciones:
+            course_order_norm = [_norm_level(x) for x in course_order]
+            present_levels_map = { _norm_level(k): k for k in alertas_observaciones.keys() }
+            ordered_levels = [present_levels_map[n] for n in course_order_norm if n in present_levels_map]
+            extras = [orig for n, orig in present_levels_map.items() if n not in course_order_norm]
+            ordered_levels.extend(extras)
+    except Exception as e:
+        traceback.print_exc()
+        flash(f'Error al calcular alumnos con observaciones críticas: {e}', 'danger')
+        return redirect(url_for('main.index'))
+
+    return render_template(
+        'alumnos_observaciones_criticas_cards.html',
+        page_title='Alumnos con observaciones críticas por nivel',
+        alertas_observaciones=alertas_observaciones,
+        ordered_levels=ordered_levels,
+        course_order=course_order,
+        filename=session.get('uploaded_filename', 'N/A')
+    )
 
 @main_bp.route('/api/get_courses')
 def api_get_courses(): 

@@ -529,15 +529,17 @@
             }
         }
 
-        if (btnAlertaPromedio && listaAlertaPromedio && iconPromedioAlerta) {
+        if (btnAlertaPromedio) {
+            // Redirigir a la nueva vista de tarjetas sin afectar la lógica de la otra alerta
             btnAlertaPromedio.addEventListener('click', function() {
-                fetchAndDisplayAlerts("{{ url_for('main.api_alertas_menor_promedio_niveles') }}", listaAlertaPromedio, iconPromedioAlerta, 'promedio');
+                window.location.href = "{{ url_for('main.alertas_alumnos_menor_promedio') }}";
             });
         }
 
-        if (btnAlertaObservaciones && listaAlertaObservaciones && iconObservacionesAlerta) {
+        if (btnAlertaObservaciones) {
+            // Redirigir a la nueva vista de tarjetas de observaciones críticas
             btnAlertaObservaciones.addEventListener('click', function() {
-                fetchAndDisplayAlerts("{{ url_for('main.api_alertas_observaciones_negativas_niveles') }}", listaAlertaObservaciones, iconObservacionesAlerta, 'observaciones');
+                window.location.href = "{{ url_for('main.alertas_alumnos_observaciones_criticas') }}";
             });
         }
     });

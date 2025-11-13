@@ -440,8 +440,8 @@
         </aside>
         {# --- FIN: MODIFICACIÓN ESTRUCTURA Y CLASES DEL MENÚ --- #}
         
-        {# Panel central con fondo blanco (sin cambios) #}
-        <section id="panel_center" class="flex-grow bg-white p-4 custom-scrollbar">
+        {# Panel central: reducimos padding izquierdo para minimizar la separación con el menú #}
+        <section id="panel_center" class="flex-grow bg-white pl-2 pr-4 py-3 md:pl-3 md:pr-5 md:py-4 custom-scrollbar">
             {% block panel_center_content %}{% endblock %}
         </section>
 
