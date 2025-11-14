@@ -33,8 +33,8 @@ class Config:
     # Para Gemini 1.5 Flash, los precios para prompts > 128k tokens son los indicados.
     MODEL_PRICING = {
         'gemini-2.5-flash': {
-            'input_per_million': 0.35,  # USD
-            'output_per_million': 1.05, # USD
+            'input_per_million': 0.30,  # USD
+            'output_per_million': 2.50, # USD
             'provider': 'Google'
         },
         # Ejemplo para un futuro modelo de OpenAI
