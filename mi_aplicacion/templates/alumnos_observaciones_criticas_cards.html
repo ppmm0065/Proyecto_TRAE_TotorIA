@@ -13,7 +13,7 @@
       No se encontraron alumnos con observaciones críticas por nivel.
     </div>
   {% else %}
-    <!-- Toolbar de ordenación y filtrado (solo UI, sin cambiar backend) -->
+    <!-- Toolbar simplificada: solo filtro por Nivel y contador -->
     <div class="sticky top-2 z-10 mb-4 bg-white/80 backdrop-blur rounded-md border border-slate-200 p-3 flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-2">
         <label for="nivelFilter" class="text-sm text-slate-700">Nivel:</label>
@@ -22,38 +22,52 @@
         </select>
       </div>
       <div class="flex items-center gap-2">
-        <label for="nivelSort" class="text-sm text-slate-700">Orden:</label>
-        <select id="nivelSort" class="text-sm bg-slate-50 border border-slate-300 rounded px-2 py-1">
-          <option value="pedagogico" selected>Pedagógico</option>
-          <option value="asc">Ascendente (A→Z)</option>
-          <option value="desc">Descendente (Z→A)</option>
+        <label for="tipoFilter" class="text-sm text-slate-700">Tipo de falta:</label>
+        <select id="tipoFilter" class="text-sm bg-slate-50 border border-slate-300 rounded px-2 py-1">
+          <option value="__ALL__" selected>Todos</option>
+          <option value="Acoso Escolar (Bullying)">Acoso Escolar (Bullying)</option>
+          <option value="Falta de Honestidad (Copia)">Falta de Honestidad (Copia)</option>
+          <option value="Falta de Respeto hacia el Profesor">Falta de Respeto hacia el Profesor</option>
+          <option value="Comportamiento Disruptivo y Molestias a Compañeros">Comportamiento Disruptivo y Molestias a Compañeros</option>
         </select>
       </div>
-      <div class="flex items-center gap-2 ml-auto">
-        <button id="toggleDensity" class="text-sm px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">Modo compacto</button>
+      <div class="ml-auto flex items-center gap-2">
         <span id="visibleCount" class="text-xs text-slate-600">0 alumnos mostrados</span>
       </div>
     </div>
 
     {% if ordered_levels is defined and ordered_levels|length > 0 %}
-      <div id="grid-niveles" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div id="grid-niveles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 [grid-auto-flow:dense]">
         {% for nivel in ordered_levels %}
           {% set alumnos = alertas_observaciones.get(nivel) %}
           {% if alumnos %}
             <div class="mb-2 nivel-group" data-nivel="{{ nivel }}" data-order="{{ loop.index0 }}">
               <h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">{{ nivel }}</h2>
-              <div class="space-y-2">
+              <div class="space-y-4">
                 {% for alumno in alumnos %}
-                  <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}" class="block">
-                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow student-card">
-                      <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold text-slate-800">{{ alumno.nombre }}</h3>
-                        <span class="text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded-full">Obs.</span>
+                  <div class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden hover:shadow-xl transition-shadow duration-300 student-card">
+                    <div class="p-5">
+                      <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                          <div class="w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center">
+                            <i class="fas fa-exclamation-circle text-red-600"></i>
+                          </div>
+                          <div>
+                            <h3 class="font-semibold text-slate-900">{{ alumno.nombre }}</h3>
+                            <p class="text-xs text-slate-500">{{ alumno.curso_original }}</p>
+                          </div>
+                        </div>
                       </div>
-                      <p class="text-xs text-slate-600 mb-2">{{ alumno.curso_original }}</p>
-                      <p class="text-sm text-slate-700 line-clamp-2 obs-text">{{ alumno.observacion }}</p>
+                      <p class="text-sm text-slate-700 line-clamp-3 obs-text">{{ alumno.observacion }}</p>
+                      <div class="mt-4 pt-4 border-t border-slate-100">
+                        <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}"
+                           class="inline-flex items-center justify-center w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-semibold py-2 px-4 rounded-lg transition-colors">
+                          <span>Ver alumno</span>
+                          <i class="fas fa-arrow-right ml-2"></i>
+                        </a>
+                      </div>
                     </div>
-                  </a>
+                  </div>
                 {% endfor %}
               </div>
             </div>
@@ -62,23 +76,36 @@
       </div>
     {% else %}
       {# Fallback: ordenar por clave de nivel como antes #}
-      <div id="grid-niveles" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div id="grid-niveles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 [grid-auto-flow:dense]">
         {% for nivel, alumnos in alertas_observaciones|dictsort %}
           {% if alumnos %}
             <div class="mb-2 nivel-group" data-nivel="{{ nivel }}" data-order="{{ loop.index0 }}">
               <h2 class="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">{{ nivel }}</h2>
-              <div class="space-y-2">
+              <div class="space-y-4">
                 {% for alumno in alumnos %}
-                  <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}" class="block">
-                    <div class="p-4 bg-white rounded-lg shadow border border-slate-200 hover:shadow-md transition-shadow student-card">
-                      <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold text-slate-800">{{ alumno.nombre }}</h3>
-                        <span class="text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded-full">Obs.</span>
+                  <div class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden hover:shadow-xl transition-shadow duration-300 student-card">
+                    <div class="p-5">
+                      <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                          <div class="w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center">
+                            <i class="fas fa-exclamation-circle text-red-600"></i>
+                          </div>
+                          <div>
+                            <h3 class="font-semibold text-slate-900">{{ alumno.nombre }}</h3>
+                            <p class="text-xs text-slate-500">{{ alumno.curso_original }}</p>
+                          </div>
+                        </div>
                       </div>
-                      <p class="text-xs text-slate-600 mb-2">{{ alumno.curso_original }}</p>
-                      <p class="text-sm text-slate-700 line-clamp-2 obs-text">{{ alumno.observacion }}</p>
+                      <p class="text-sm text-slate-700 line-clamp-3 obs-text">{{ alumno.observacion }}</p>
+                      <div class="mt-4 pt-4 border-t border-slate-100">
+                        <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=alumno.nombre) }}"
+                           class="inline-flex items-center justify-center w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-semibold py-2 px-4 rounded-lg transition-colors">
+                          <span>Ver alumno</span>
+                          <i class="fas fa-arrow-right ml-2"></i>
+                        </a>
+                      </div>
                     </div>
-                  </a>
+                  </div>
                 {% endfor %}
               </div>
             </div>
@@ -103,16 +130,51 @@
       const grid = document.getElementById('grid-niveles');
       const groups = Array.from(document.querySelectorAll('.nivel-group'));
       const selectNivel = document.getElementById('nivelFilter');
-      const selectSort = document.getElementById('nivelSort');
-      const densityBtn = document.getElementById('toggleDensity');
+      const selectTipo = document.getElementById('tipoFilter');
       const visibleCount = document.getElementById('visibleCount');
 
       // Poblar niveles en el selector
       const niveles = groups.map(g => g.getAttribute('data-nivel'));
-      const uniqueNiveles = Array.from(new Set(niveles)).sort((a,b) => a.localeCompare(b));
+      function nivelOrderIndex(n) {
+        const s = (n || '').toLowerCase();
+        const m = s.match(/\d+/);
+        const num = m ? parseInt(m[0], 10) : 0;
+        if (s.includes('básico')) return num; // 1–8 Básico primero
+        if (s.includes('medio')) return 100 + num; // Luego Media
+        return 1000 + num; // Otros al final
+      }
+      const uniqueNiveles = Array.from(new Set(niveles)).sort((a,b) => nivelOrderIndex(a) - nivelOrderIndex(b));
       uniqueNiveles.forEach(n => {
         const opt = document.createElement('option');
         opt.value = n; opt.textContent = n; selectNivel.appendChild(opt);
+      });
+
+      function categorizeObservation(t) {
+        const s = (t || '').toLowerCase();
+        const bullying = [
+          'agresion', 'agresiones', 'agresión', 'agresiones físicas', 'agresiones fisicas',
+          'golpea', 'golpeó', 'golpeo', 'acoso', 'bullying', 'hostig', 'intimid', 'amenaz'
+        ];
+        const copia = [
+          'copia en la prueba', 'copia en la evaluación', 'copió', 'copio', 'copiar', 'plagio', 'trampos', 'fraude'
+        ];
+        const respeto = [
+          'falta de respeto hacia el profesor', 'ofende al profesor', 'insulta al profesor', 'agrede al profesor', 'desafia al profesor'
+        ];
+        const disruptivo = [
+          'molesta a sus compañeros', 'interrumpe la clase', 'molestias a compañeros', 'ruido', 'desorden', 'perturba', 'lanza objetos'
+        ];
+        const has = arr => arr.some(k => s.includes(k));
+        if (has(bullying)) return 'Acoso Escolar (Bullying)';
+        if (has(copia)) return 'Falta de Honestidad (Copia)';
+        if (has(respeto)) return 'Falta de Respeto hacia el Profesor';
+        if (has(disruptivo)) return 'Comportamiento Disruptivo y Molestias a Compañeros';
+        return '__UNCATEGORIZED__';
+      }
+
+      document.querySelectorAll('.student-card').forEach(card => {
+        const txt = card.querySelector('.obs-text')?.textContent || '';
+        card.dataset.category = categorizeObservation(txt);
       });
 
       function updateVisibleCount() {
@@ -123,46 +185,46 @@
       function applyFilter() {
         const v = selectNivel.value;
         groups.forEach(g => {
-          const show = (v === '__ALL__') || (g.getAttribute('data-nivel') === v);
-          g.style.display = show ? '' : 'none';
+          const showGroupByLevel = (v === '__ALL__') || (g.getAttribute('data-nivel') === v);
+          g.style.display = showGroupByLevel ? '' : 'none';
+          const container = g.querySelector('.space-y-4, .grid');
+          const cards = Array.from(g.querySelectorAll('.student-card'));
+          let visibleInGroup = 0;
+          cards.forEach(card => {
+            const matchTipo = (selectTipo.value === '__ALL__') || (card.dataset.category === selectTipo.value);
+            const displayCard = showGroupByLevel && matchTipo;
+            card.style.display = displayCard ? '' : 'none';
+            if (displayCard) visibleInGroup++;
+          });
+          if (container) {
+            if (v === '__ALL__') {
+              container.className = 'space-y-4';
+            } else {
+              container.className = (g.getAttribute('data-nivel') === v)
+                ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 [grid-auto-flow:dense]'
+                : 'space-y-4';
+            }
+          }
+          if (visibleInGroup === 0) {
+            g.style.display = 'none';
+          }
         });
+        if (v === '__ALL__') {
+          grid.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 [grid-auto-flow:dense]';
+        } else {
+          grid.className = 'grid grid-cols-1';
+        }
         updateVisibleCount();
       }
 
-      function applySort() {
-        const mode = selectSort.value;
-        const sorted = groups.slice().sort((g1, g2) => {
-          if (mode === 'pedagogico') {
-            return Number(g1.dataset.order) - Number(g2.dataset.order);
-          }
-          const n1 = g1.dataset.nivel.toLocaleUpperCase();
-          const n2 = g2.dataset.nivel.toLocaleUpperCase();
-          const cmp = n1.localeCompare(n2);
-          return mode === 'asc' ? cmp : -cmp;
-        });
-        sorted.forEach(g => grid.appendChild(g));
-      }
-
-      let compact = true;
-      function applyDensity() {
-        const texts = document.querySelectorAll('.obs-text');
-        texts.forEach(p => {
-          if (compact) {
-            p.classList.add('line-clamp-2');
-          } else {
-            p.classList.remove('line-clamp-2');
-          }
-        });
-        densityBtn.textContent = compact ? 'Modo detallado' : 'Modo compacto';
-        compact = !compact;
-      }
-
       selectNivel.addEventListener('change', () => { applyFilter(); });
-      selectSort.addEventListener('change', () => { applySort(); });
-      densityBtn.addEventListener('click', () => { applyDensity(); });
+      selectTipo.addEventListener('change', () => { applyFilter(); });
 
       // Inicialización
-      applySort();
+      (function reorderGroups(){
+        const sorted = groups.slice().sort((g1, g2) => nivelOrderIndex(g1.dataset.nivel) - nivelOrderIndex(g2.dataset.nivel));
+        sorted.forEach(g => grid.appendChild(g));
+      })();
       applyFilter();
       updateVisibleCount();
     });
