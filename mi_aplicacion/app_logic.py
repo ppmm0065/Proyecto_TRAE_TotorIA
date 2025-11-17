@@ -871,6 +871,16 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     except Exception as e_followup_retrieval:
         retrieved_context_followup = f"Error crítico al buscar en el historial de seguimiento: {e_followup_retrieval}"
         traceback.print_exc()
+    try:
+        folder_ctx = current_app.config.get('CONTEXT_DOCS_FOLDER')
+        if folder_ctx and os.path.isdir(folder_ctx):
+            names = [n for n in os.listdir(folder_ctx) if n.lower().endswith(('.pdf', '.txt'))]
+            if names:
+                listing = "\n".join([f"* {n}" for n in sorted(names)])
+                header = "Documentos de Contexto Institucional:\n"
+                retrieved_context_inst = (header + listing + "\n\n" + (retrieved_context_inst or "")).strip()
+    except Exception:
+        pass
             
     # --- Helpers de presupuesto de prompt ---
     def _trim_to_char_budget(text: str, max_chars: int) -> str:
