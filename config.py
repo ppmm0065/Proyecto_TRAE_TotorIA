@@ -21,7 +21,8 @@ class Config:
     FAISS_INDEX_PATH = "./faiss_index_multi" 
     FAISS_FOLLOWUP_INDEX_PATH = "./faiss_index_followups"
     EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-    NUM_RELEVANT_CHUNKS = 10 # Aumentado moderadamente para mayor cobertura de contexto
+    NUM_RELEVANT_CHUNKS_INST = 15 # Fragmentos para índice institucional
+    NUM_RELEVANT_CHUNKS_FU = 10  # Fragmentos para índice de seguimientos
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     # Zona horaria centralizada para conversiones de tiempo
     TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Santiago')
@@ -260,7 +261,7 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
         'feature_store_signals': 0.05
     }
     # Presupuestos máximos específicos para RAG (aplicados además del total)
-    RAG_INST_MAX_CHARS = 12000
+    RAG_INST_MAX_CHARS = 15000
     RAG_FOLLOWUP_MAX_CHARS = 12000
 
     # Listas de keywords configurables (se pueden sobreescribir por entorno)

@@ -751,7 +751,8 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                              feature_store_signals_string=""): # <-- MODIFICACIÓN: Nuevo parámetro
     
     api_key = current_app.config.get('GEMINI_API_KEY')
-    num_relevant_chunks_config = current_app.config.get('NUM_RELEVANT_CHUNKS', 7)
+    num_relevant_chunks_inst = int(current_app.config.get('NUM_RELEVANT_CHUNKS_INST', current_app.config.get('NUM_RELEVANT_CHUNKS', 10)))
+    num_relevant_chunks_fu = int(current_app.config.get('NUM_RELEVANT_CHUNKS_FU', current_app.config.get('NUM_RELEVANT_CHUNKS', 10)))
     model_name = 'gemini-2.5-flash' 
 
     def create_error_response(error_message):
@@ -783,7 +784,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     # Recuperación de contexto institucional
     if vs_inst:
         try:
-            relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
+            relevant_docs_inst = vs_inst.similarity_search(final_user_instruction, k=num_relevant_chunks_inst)
             if relevant_docs_inst:
                 context_list = [
                     f"--- Contexto Inst. {i+1} (Fuente: {os.path.basename(doc.metadata.get('source', 'Unknown'))}) ---\n{doc.page_content}\n"
@@ -827,7 +828,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             except Exception:
                 _FAISS = None
 
-            k_fu = num_relevant_chunks_config
+            k_fu = num_relevant_chunks_fu
 
             if filtered_docs:
                 if 'embedding_model_instance' in globals() and embedding_model_instance is not None and _FAISS is not None:
@@ -853,7 +854,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         else:
             # Búsqueda general con índice global
             if vs_followup:
-                relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_config)
+                relevant_docs_fu_final = vs_followup.similarity_search(final_user_instruction, k=num_relevant_chunks_fu)
             else:
                 retrieved_context_followup = "El índice de historial de seguimiento no está disponible actualmente (vs_followup is None)."
 
