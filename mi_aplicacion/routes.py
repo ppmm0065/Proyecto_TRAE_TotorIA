@@ -88,8 +88,10 @@ def handle_main_bp_exception(e):
         # Si algo falla aquí, devolvemos un 500 genérico en JSON para API
         if request.path.startswith('/api/'):
             return jsonify({"error": "Error inesperado en el servidor."}), 500
-    # Para rutas no-API, dejamos el manejo estándar (HTML)
-    return e
+    # Para rutas no-API, logeamos el error y redirigimos a la página de error
+    current_app.logger.exception(f"Excepción no controlada en ruta no-API: {e}")
+    flash(f'Error interno del servidor: {str(e)}', 'danger')
+    return redirect(url_for('main.index'))
 
 # --- Utilitario de normalización de texto centralizado en utils.normalize_text ---
 

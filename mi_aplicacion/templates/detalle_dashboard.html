@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}
-    Análisis Detallado: {{ nombre_entidad }}
+    Análisis Detallado: {{ nombre_entidad | fix_course_characters }}
 {% endblock %}
 
 {% block head_extra %}
@@ -113,7 +113,7 @@
         <p class="text-sm text-slate-600">Tipo:</p>
         <p class="font-semibold text-indigo-700 break-words capitalize">{{ tipo_entidad }}</p>
         <p class="text-sm text-slate-600 mt-2">Nombre:</p>
-        <p class="font-semibold text-indigo-700 break-words">{{ nombre_entidad }}</p>
+        <p class="font-semibold text-indigo-700 break-words">{{ nombre_entidad | fix_course_characters }}</p>
     </div>
     
     <hr class="my-6 border-slate-300">
@@ -136,7 +136,7 @@
     <div class="flex items-center justify-between mb-6 gap-4">
         <div class="flex-grow">
             <h1 class="text-2xl md:text-3xl font-bold text-slate-800">
-                Análisis Detallado: <span class="text-indigo-600">{{ nombre_entidad }}</span>
+                Análisis Detallado: <span class="text-indigo-600">{{ nombre_entidad | fix_course_characters }}</span>
             </h1>
             <div class="flex items-center gap-4 mt-2">
                 <p class="text-lg text-slate-600">({{ tipo_entidad|capitalize }})</p>
@@ -249,7 +249,7 @@
                 {% else %}
                     <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4" role="alert">
                         <p class="font-bold">Información no disponible</p>
-                        <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad }}</span>.</p>
+                        <p>No se pudieron cargar los datos para el dashboard de <span class="font-medium">{{ nombre_entidad | fix_course_characters }}</span>.</p>
                     </div>
                 {% endif %}
             </div>
@@ -263,7 +263,7 @@
         {# Convertimos la sección de chat en una tarjeta 'bg-slate-50' #}
   <div id="chat-detalle-section" class="mt-auto pt-6 border-t border-slate-200 flex flex-col">
             <h2 class="text-xl font-semibold text-slate-800 mb-3">
-                <i class="fas fa-comments mr-2 text-teal-500"></i>Consultar sobre <span class="text-teal-600">{{ nombre_entidad }}</span>
+                <i class="fas fa-comments mr-2 text-teal-500"></i>Consultar sobre <span class="text-teal-600">{{ nombre_entidad | fix_course_characters }}</span>
             </h2>
             <div class="bg-slate-50 p-4 rounded-lg shadow-md border border-slate-200">
                 {# El historial de chat (bg-slate-50) se vuelve 'bg-white' o 'bg-slate-100' para contrastar #}
@@ -275,7 +275,7 @@
                              <div class="gemini-message text-left mb-2 flex flex-col items-start"><div class="inline-block bg-transparent text-slate-800 text-sm rounded-lg px-3 py-2 shadow">{{ message.gemini_html | safe }}</div></div>
                         {% endif %}
                     {% else %}
-                        <p class="text-sm text-slate-500 italic">Inicia la conversación para analizar a {{ nombre_entidad }}...</p>
+                        <p class="text-sm text-slate-500 italic">Inicia la conversación para analizar a {{ nombre_entidad | fix_course_characters }}...</p>
                     {% endfor %}
                 </div>
                 <form id="chat-form-detalle" class="flex gap-3">

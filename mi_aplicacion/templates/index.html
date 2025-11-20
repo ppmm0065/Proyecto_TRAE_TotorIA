@@ -34,12 +34,12 @@
 
         {# --- INICIO: MODIFICACIÓN KPIs --- #}
         {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' y mantenido 'shadow-sm' #}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-6 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6 mb-8">
             <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-blue-500">
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Total Estudiantes</h3>
-                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos }}</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.total_alumnos if session.file_summary else 0 }}</p>
                     </div>
                     <div class="bg-blue-100 text-blue-600 rounded-lg p-2">
                         <i class="fa-solid fa-users text-xl"></i>
@@ -50,7 +50,7 @@
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Promedio General</h3>
-                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.get('promedio_general') | nota_un_decimal if session.file_summary.get('promedio_general') != "N/A" else "N/A" }}</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.get('promedio_general') | nota_un_decimal if session.file_summary and session.file_summary.get('promedio_general') != "N/A" else "N/A" }}</p>
                     </div>
                     <div class="bg-purple-100 text-purple-600 rounded-lg p-2">
                         <i class="fa-solid fa-arrow-trend-up text-xl"></i>
@@ -61,21 +61,10 @@
                 <div class="flex justify-between items-start">
                     <div>
                         <h3 class="text-sm font-medium text-slate-500 uppercase">Asistencia Promedio</h3>
-                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ "%.0f" | format(session.file_summary.asistencia_promedio_global * 100) }}%</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ "%.0f" | format(session.file_summary.asistencia_promedio_global * 100) if session.file_summary and session.file_summary.asistencia_promedio_global else "0" }}%</p>
                     </div>
                      <div class="bg-cyan-100 text-cyan-600 rounded-lg p-2">
                         <i class="fa-solid fa-calendar-check text-xl"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-red-500">
-                 <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes en Riesgo</h3>
-                        <p class="text-3xl font-bold text-slate-800 mt-2">{{ session.file_summary.estudiantes_en_riesgo }}</p>
-                    </div>
-                     <div class="bg-red-100 text-red-600 rounded-lg p-2">
-                        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
                     </div>
                 </div>
             </div>
@@ -89,7 +78,7 @@
                 <i class="fas fa-triangle-exclamation text-red-500 mr-2"></i> Alertas Clave del Establecimiento
             </h2>
             <div class="space-y-6">
-                {% if session.file_summary.advanced_alerts and session.file_summary.advanced_alerts.niveles_bajo_rendimiento %}
+                {% if session.file_summary and session.file_summary.advanced_alerts and session.file_summary.advanced_alerts.niveles_bajo_rendimiento %}
                     <div class="p-4 bg-slate-50 border border-red-200 rounded-lg">
                         <h3 class="font-semibold text-red-700 mb-2">
                             <i class="fas fa-chart-line-down mr-1"></i> Niveles con Bajo Rendimiento Significativo
@@ -107,7 +96,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                     <!-- Alumno con menor rendimiento (General) -->
                     <div class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md">
-                        {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                        {% if session.file_summary and session.file_summary.alumno_menor_promedio and session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=session.file_summary.alumno_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
@@ -115,13 +104,13 @@
                                 <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
                                     <i class="fas fa-arrow-down-short-wide text-slate-500 mr-2"></i> Alumno con Menor Rendimiento (General)
                                 </h3>
-                                {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                                {% if session.file_summary and session.file_summary.alumno_menor_promedio and session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                                     <p class="text-base font-semibold text-slate-900">{{ session.file_summary.alumno_menor_promedio.nombre }}</p>
                                     <p class="text-sm text-slate-700">Promedio: {{ session.file_summary.alumno_menor_promedio.promedio | nota_un_decimal if session.file_summary.alumno_menor_promedio.promedio != "N/A" else "N/A" }}</p>
                                 {% else %}
                                     <p class="text-sm text-slate-700 italic">No disponible.</p>
                                 {% endif %}
-                        {% if session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
+                        {% if session.file_summary and session.file_summary.alumno_menor_promedio and session.file_summary.alumno_menor_promedio.nombre != "N/A" %}
                             </a>
                         {% else %}
                             </div>
@@ -130,7 +119,7 @@
 
                     <!-- Curso con menor rendimiento (General) -->
                     <div class="bg-white rounded-lg shadow border border-slate-300 transition hover:shadow-md">
-                        {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                        {% if session.file_summary and session.file_summary.curso_menor_promedio and session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                             <a href="{{ url_for('main.detalle_entidad', tipo_entidad='curso', valor_codificado=session.file_summary.curso_menor_promedio.nombre) }}" class="block p-4 w-full h-full">
                         {% else %}
                             <div class="p-4 w-full h-full">
@@ -138,13 +127,13 @@
                                 <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1 flex items-center">
                                     <i class="fas fa-chart-simple text-slate-500 mr-2"></i> Curso con Menor Rendimiento (General)
                                 </h3>
-                                {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
-                                    <p class="text-base font-semibold text-slate-900">{{ session.file_summary.curso_menor_promedio.nombre }}</p>
+                                {% if session.file_summary and session.file_summary.curso_menor_promedio and session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                                    <p class="text-base font-semibold text-slate-900">{{ session.file_summary.curso_menor_promedio.nombre | fix_course_characters }}</p>
                                     <p class="text-sm text-slate-700">Promedio del Curso: {{ session.file_summary.curso_menor_promedio.promedio | nota_un_decimal if session.file_summary.curso_menor_promedio.promedio != "N/A" else "N/A" }}</p>
                                 {% else %}
                                     <p class="text-sm text-slate-700 italic">No disponible.</p>
                                 {% endif %}
-                        {% if session.file_summary.curso_menor_promedio.nombre != "N/A" %}
+                        {% if session.file_summary and session.file_summary.curso_menor_promedio and session.file_summary.curso_menor_promedio.nombre != "N/A" %}
                             </a>
                         {% else %}
                             </div>
@@ -172,7 +161,7 @@
         {# --- FIN: MODIFICACIÓN Alertas --- #}
 
 
-        {% if session.file_summary.level_kpis %}
+        {% if session.file_summary and session.file_summary.level_kpis %}
         {# --- INICIO: MODIFICACIÓN Tabla Nivel --- #}
         {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' #}
         <div class="my-8 p-6 bg-slate-50 rounded-lg shadow-md border border-slate-200">
@@ -186,7 +175,7 @@
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Nivel</th>
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Total Alumnos</th>
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Prom. General (Notas)</th>
-                            {% if session.file_summary.asistencia_data_available %}
+                            {% if session.file_summary and session.file_summary.asistencia_data_available %}
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Prom.</th>
                             {% endif %}
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Menor Prom.</th>
@@ -194,24 +183,24 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-slate-200"> {# Dejamos el fondo de la tabla 'bg-white' para legibilidad #}
-                        {% for nivel, data in session.file_summary.level_kpis.items()|sort %}
+                        {% for nivel, data in (session.file_summary.level_kpis if session.file_summary and session.file_summary.level_kpis else {})|ordenar_niveles_educativos %}
                         <tr>
-                            <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ nivel }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ nivel | fix_course_characters }}</td>
                             <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.total_alumnos }}</td>
                             <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.promedio_general_notas | nota_un_decimal }}</td>
-                            {% if session.file_summary.asistencia_data_available %}
+                            {% if session.file_summary and session.file_summary.asistencia_data_available %}
                             <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ data.asistencia_promedio }}</td>
                             {% endif %}
                             <td class="px-4 py-3 whitespace-nowrap text-slate-700">
-                                {{ data.curso_menor_promedio.nombre }} ({{ data.curso_menor_promedio.promedio | nota_un_decimal }})
+                                {{ data.curso_menor_promedio.nombre | fix_course_characters }} ({{ data.curso_menor_promedio.promedio | nota_un_decimal }})
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap text-slate-700">
-                                {{ data.curso_mayor_promedio.nombre }} ({{ data.curso_mayor_promedio.promedio | nota_un_decimal }})
+                                {{ data.curso_mayor_promedio.nombre | fix_course_characters }} ({{ data.curso_mayor_promedio.promedio | nota_un_decimal }})
                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="{{ 6 if session.file_summary.asistencia_data_available else 5 }}" class="px-4 py-3 text-center text-slate-500 italic">No hay datos de niveles para mostrar.</td>
+                            <td colspan="{{ 6 if session.file_summary and session.file_summary.asistencia_data_available else 5 }}" class="px-4 py-3 text-center text-slate-500 italic">No hay datos de niveles para mostrar.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -221,38 +210,7 @@
         {# --- FIN: MODIFICACIÓN Tabla Nivel --- #}
         {% endif %}
 
-        {% if session.file_summary.asistencia_data_available and session.file_summary.course_attendance %}
-        {# --- INICIO: MODIFICACIÓN Tabla Asistencia --- #}
-        {# Cambiado 'bg-white' a 'bg-slate-50', 'shadow-xl' a 'shadow-md' #}
-        <div class="my-8 p-6 bg-slate-50 rounded-lg shadow-md border border-slate-200">
-            <h2 class="text-xl font-semibold text-slate-800 mb-4 text-center">
-                <i class="fas fa-user-check text-green-500 mr-2"></i> Asistencia Promedio por Curso
-            </h2>
-            <div class="overflow-x-auto custom-scrollbar max-h-72">
-                <table class="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead class="bg-slate-100"> {# Fondo de a a 'slate-100' #}
-                        <tr>
-                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso</th>
-                            <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Promedio</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-slate-200"> {# Fondo de tabla 'bg-white' #}
-                        {% for curso, asistencia in session.file_summary.course_attendance.items()|sort %}
-                        <tr>
-                            <td class="px-4 py-3 whitespace-nowrap font-medium text-slate-800">{{ curso }}</td>
-                            <td class="px-4 py-3 whitespace-nowrap text-center text-slate-700">{{ asistencia }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="2" class="px-4 py-3 text-center text-slate-500 italic">No hay datos de asistencia por curso para mostrar.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {# --- FIN: MODIFICACIÓN Tabla Asistencia --- #}
-        {% endif %}
+        {# (Sección "Asistencia Promedio por Curso" eliminada) #}
         
         {# --- INICIO: MODIFICACIÓN Gráficos --- #}
         {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' #}
@@ -281,7 +239,7 @@
             <h3 class="text-md font-semibold text-slate-700 mb-2">Columnas Detectadas:</h3>
             {# Esta tarjeta ya era 'bg-slate-50', así que se mantiene perfecta #}
             <p class="text-sm text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                {{ session.file_summary.column_names | join(', ') }}
+                {{ session.file_summary.column_names | join(', ') if session.file_summary and session.file_summary.column_names else 'No hay columnas disponibles' }}
             </p>
         </div>
         <div class="text-center mb-8">

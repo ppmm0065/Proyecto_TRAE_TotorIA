@@ -29,7 +29,7 @@
                       <div class="flex items-start justify-between">
                         <div>
                           <p class="text-base font-semibold text-slate-800">{{ alumno.nombre }}</p>
-                          <p class="text-sm text-slate-600">{{ alumno.curso_original }}</p>
+                          <p class="text-sm text-slate-600">{{ alumno.curso_original | fix_course_characters }}</p>
                         </div>
                         <span class="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700">
                           Prom: {{ alumno.promedio | nota_un_decimal if alumno.promedio != 'N/A' else 'N/A' }}
@@ -55,7 +55,7 @@
                   <div class="flex items-start justify-between">
                     <div>
                       <p class="text-base font-semibold text-slate-800">{{ alumno.nombre }}</p>
-                      <p class="text-sm text-slate-600">{{ alumno.curso_original }}</p>
+                      <p class="text-sm text-slate-600">{{ alumno.curso_original | fix_course_characters }}</p>
                     </div>
                     <span class="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700">
                       Prom: {{ alumno.promedio | nota_un_decimal if alumno.promedio != 'N/A' else 'N/A' }}

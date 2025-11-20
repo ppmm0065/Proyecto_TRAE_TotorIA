@@ -12,4 +12,4 @@ if __name__ == '__main__':
     # El host '0.0.0.0' hace que sea accesible desde otras máquinas en la red local.
     # Para desarrollo local solamente, '127.0.0.1' es suficiente.
     # El puerto 5000 es el por defecto de Flask.
-    app.run(host='0.0.0.0', port=5000) # debug=True se maneja por la configuración
+    app.run(host='127.0.0.1', port=5000, debug=True) # debug=True se maneja por la configuración

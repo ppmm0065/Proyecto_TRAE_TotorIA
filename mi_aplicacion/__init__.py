@@ -93,8 +93,10 @@ def create_app(config_name='dev'):
         app.register_blueprint(routes.main_bp)
         # Registrar filtros Jinja personalizados
         try:
-            from .filters import nota_un_decimal
+            from .filters import nota_un_decimal, ordenar_niveles_educativos, fix_course_characters
             app.jinja_env.filters['nota_un_decimal'] = nota_un_decimal
+            app.jinja_env.filters['ordenar_niveles_educativos'] = ordenar_niveles_educativos
+            app.jinja_env.filters['fix_course_characters'] = fix_course_characters
         except Exception as e:
             app.logger.warning(f"No se pudieron registrar los filtros Jinja personalizados: {e}")
 

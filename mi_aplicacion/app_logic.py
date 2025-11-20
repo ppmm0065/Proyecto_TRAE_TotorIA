@@ -40,7 +40,10 @@ vector_store_followups = None # Global FAISS for general follow-up search
 def get_dataframe_from_session_file():
     current_file_path = session.get('current_file_path')
     if not current_file_path or not os.path.exists(current_file_path):
-        print("app_logic.get_dataframe_from_session_file: No se encontró current_file_path en sesión o el archivo no existe.")
+        try:
+            current_app.logger.debug("get_dataframe_from_session_file: no hay archivo activo en sesión.")
+        except Exception:
+            pass
         return None
     
     try:
@@ -1771,6 +1774,8 @@ def reload_followup_vector_store(app_config):
 # --- Helper and Data Processing Functions (Unchanged) ---
 def _extract_level_from_course(course_name):
     if not isinstance(course_name, str): return "Desconocido"
+    # Fix character encoding issues: ø -> °, \xa0 -> á
+    course_name = course_name.replace('ø', '°').replace('\xa0', 'á')
     parts = " ".join(course_name.strip().split()).split(' ')
     return " ".join(parts[:-1]) if len(parts) > 1 and len(parts[-1]) == 1 and parts[-1].isalpha() else " ".join(parts)
 
