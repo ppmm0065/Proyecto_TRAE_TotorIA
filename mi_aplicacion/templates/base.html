@@ -96,11 +96,22 @@
             width: 280px;
             height: calc(100vh - 5rem);
             background: linear-gradient(to bottom, white, var(--color-slate-50));
-            font-size: 0.95rem; /* Reduce tamaño de fuente del menú */
+            font-size: 0.75rem; /* ~25% reducción de tamaño del texto del menú */
+            position: relative;
+            z-index: 30;
+            overflow: hidden; /* El contenedor oculta desbordes; el scroll va en .flex-grow */
+        }
+
+        /* Habilitar scroll en el área de contenido del menú, conservando header y perfil visibles */
+        #side-menu .flex-grow {
+            min-height: 0; /* Necesario en Flexbox para permitir que el hijo pueda hacer scroll */
+            height: 100%;
+            flex: 1 1 auto;
+            overflow-y: auto;
         }
         
         .menu-header {
-            padding: 1rem; /* Compacta el encabezado del menú */
+            padding: 0.75rem; /* Compacta el encabezado del menú */
             border-bottom: 1px solid var(--color-slate-200);
             background-color: white;
             position: relative;
@@ -120,7 +131,7 @@
         .menu-item {
             display: flex;
             align-items: center;
-            padding: 0.7rem 1rem; /* Reduce padding para mayor densidad */
+            padding: 0.5rem 0.8rem; /* Mayor densidad */
             color: var(--color-slate-600);
             font-weight: 500;
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -143,7 +154,7 @@
         .menu-item-disabled {
             display: flex;
             align-items: center;
-            padding: 0.7rem 1rem; /* Reduce padding para mayor densidad */
+            padding: 0.5rem 0.8rem; /* Mayor densidad */
             color: var(--color-slate-400);
             cursor: not-allowed;
             opacity: 0.8;
@@ -194,8 +205,8 @@
         }
         
         .menu-item i.fa-fw {
-            width: 1.15rem; /* Iconos ligeramente más pequeños */
-            margin-right: 0.6rem; /* Menor separación del texto */
+            width: 0.95rem; /* Ajuste proporcional al texto reducido */
+            margin-right: 0.5rem; /* Menor separación acorde al nuevo tamaño */
             color: var(--color-indigo);
             transition: transform 0.2s ease;
         }
@@ -206,7 +217,7 @@
         
         .menu-section-title {
             padding: 1rem 1rem 0.25rem; /* Compacta el espaciado superior */
-            font-size: 0.70rem; /* Reduce el tamaño del título de sección */
+            font-size: 0.52rem; /* ~25% menos */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: var(--color-slate-700);
@@ -220,8 +231,8 @@
             position: relative;
             background: linear-gradient(to right, var(--color-indigo-light), white);
             border-radius: 10px;
-            margin: 0.75rem 0.5rem; /* Reduce márgenes */
-            padding: 0.4rem 0.4rem 0.6rem 0.6rem; /* Reduce padding */
+            margin: 0.5rem 0.4rem; /* Mayor densidad */
+            padding: 0.3rem 0.3rem 0.45rem 0.45rem; /* Mayor densidad */
             box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .submenu::before {
@@ -235,8 +246,8 @@
             background: var(--color-indigo);
         }
         .submenu-title {
-            padding: 0.4rem 0.25rem 0.6rem 0.25rem; /* Compacta */
-            font-size: 0.72rem; /* Reduce tamaño del subtítulo */
+            padding: 0.3rem 0.2rem 0.45rem 0.2rem; /* Mayor densidad */
+            font-size: 0.54rem; /* ~25% menos */
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--color-indigo);
@@ -246,7 +257,7 @@
         .user-profile {
             margin-top: auto;
             border-top: 1px solid var(--color-slate-200);
-            padding: 1.25rem;
+            padding: 1rem;
             display: flex;
             align-items: center;
             background-color: white;
@@ -269,6 +280,8 @@
             transform: scale(1.1);
             color: #e74c3c; /* Tono rojo para eliminar */
         }
+        .nowrap { white-space: nowrap; }
+        .card-left-shadow { position: relative; box-shadow: inset 14px 0 14px rgba(226,232,240,0.7), 0 1px 2px rgba(0,0,0,0.04); }
     </style>
     {# --- FIN: MODIFICACIÓN ESTILOS DEL MENÚ --- #}
 
@@ -288,7 +301,7 @@
 
         {# --- INICIO: MODIFICACIÓN ESTRUCTURA Y CLASES DEL MENÚ --- #}
         <aside id="side-menu" class="flex-shrink-0 custom-scrollbar bg-white border-r border-slate-200 shadow-md">
-            <div class="flex-grow">
+            <div class="flex-grow overflow-y-auto custom-scrollbar">
                 {% if session.uploaded_filename %}
                     <div class="menu-header">
                         <p class="text-xs text-slate-500 mb-2">Archivo Activo:</p>
@@ -335,6 +348,11 @@
                                 <li>
                                     <a href="{{ url_for('main.index') }}" class="menu-item menu-item-action {% if request.endpoint == 'main.index' %}active{% endif %}">
                                         <i class="fas fa-home fa-fw"></i> Inicio / Dashboard
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="{{ url_for('main.riesgos') }}" class="menu-item menu-item-action {% if request.endpoint == 'main.riesgos' %}active{% endif %}">
+                                        <i class="fas fa-exclamation-triangle fa-fw"></i> Panel de Riesgos
                                     </a>
                                 </li>
                             </ul>
@@ -406,7 +424,7 @@
                                         <div class="flex flex-col">
                                             <span class="text-xs text-slate-500">Hoy</span>
                                             <span class="text-sm">
-                                                <span id="daily-total-tokens" class="font-mono">-</span> tokens • US$ <span id="daily-total-cost" class="font-mono">0.000000</span>
+                                                <span id="daily-total-tokens" class="font-mono">-</span> tokens • <span class="nowrap">US$ <span id="daily-total-cost" class="font-mono">0.000000</span></span>
                                             </span>
                                         </div>
                                     </div>
@@ -417,7 +435,7 @@
                                         <div class="flex flex-col">
                                             <span class="text-xs text-slate-500">Mes</span>
                                             <span class="text-sm">
-                                                <span id="monthly-total-tokens" class="font-mono">-</span> tokens • US$ <span id="monthly-total-cost" class="font-mono">0.000000</span>
+                                                <span id="monthly-total-tokens" class="font-mono">-</span> tokens • <span class="nowrap">US$ <span id="monthly-total-cost" class="font-mono">0.000000</span></span>
                                             </span>
                                         </div>
                                     </div>

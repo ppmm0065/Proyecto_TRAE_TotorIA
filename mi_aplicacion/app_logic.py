@@ -39,11 +39,39 @@ vector_store_followups = None # Global FAISS for general follow-up search
 
 def get_dataframe_from_session_file():
     current_file_path = session.get('current_file_path')
-    if not current_file_path or not os.path.exists(current_file_path):
+    if not current_file_path:
         try:
-            current_app.logger.debug("get_dataframe_from_session_file: no hay archivo activo en sesión.")
+            current_app.logger.debug("get_dataframe_from_session_file: ruta vacía en sesión")
         except Exception:
             pass
+        return None
+    try:
+        current_file_path = os.path.normpath(str(current_file_path))
+    except Exception:
+        return None
+    if not os.path.exists(current_file_path):
+        try:
+            current_app.logger.debug(f"get_dataframe_from_session_file: archivo no existe: {current_file_path}")
+        except Exception:
+            pass
+        return None
+    name, ext = os.path.splitext(current_file_path)
+    if ext.lower() != ".csv":
+        try:
+            flash("El archivo activo no es CSV válido.", "danger")
+            current_app.logger.warning(f"Archivo activo con extensión inválida: {ext}")
+        except Exception:
+            pass
+        return None
+    try:
+        if os.path.getsize(current_file_path) <= 0:
+            try:
+                flash("El archivo CSV está vacío.", "warning")
+                current_app.logger.warning("Archivo CSV vacío")
+            except Exception:
+                pass
+            return None
+    except Exception:
         return None
     
     try:
@@ -1221,6 +1249,22 @@ def init_sqlite_db(db_path):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_student_data_name ON student_data_history (student_name)")
         
         # --- FIN: NUEVAS TABLAS PARA HISTORIAL DE DATOS ---
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS intervention_outcomes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                follow_up_id INTEGER,
+                related_entity_type TEXT,
+                related_entity_name TEXT,
+                course_name TEXT,
+                outcome_date DATE,
+                compliance_pct REAL,
+                impact_grade_delta REAL,
+                impact_attendance_delta REAL,
+                notes TEXT,
+                FOREIGN KEY (follow_up_id) REFERENCES follow_ups (id) ON DELETE SET NULL
+            )
+        ''')
 
         conn.commit()
     except Exception as e:
@@ -2682,3 +2726,324 @@ def build_feature_store_signals(fs: dict, entity_type: str = None, entity_name: 
         lines.append(f"[Error al generar señales del Feature Store: {e}]")
 
     return "\n".join(lines)
+
+
+def compute_risk_scores_from_feature_store(fs: dict) -> dict:
+    if not fs:
+        return {}
+    students = fs.get('students', {}) or {}
+    levels = fs.get('levels', {}) or {}
+    attendance_threshold_default = float(current_app.config.get('ATTENDANCE_RISK_THRESHOLD', 0.85))
+    low_perf_thr_default = float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0))
+    level_thresholds = current_app.config.get('RISK_THRESHOLDS_BY_LEVEL') or {}
+    risk = {}
+    db_path = None
+    try:
+        db_path = current_app.config['DATABASE_FILE']
+    except Exception:
+        db_path = None
+    for name, info in students.items():
+        avg = info.get('promedio')
+        att = info.get('asistencia')
+        neg = info.get('neg_annotations_count', 0)
+        fam = info.get('family_complexity_score', 0)
+        cons = info.get('consistencia_asignaturas') or {}
+        std_dev = cons.get('std_dev')
+        course = info.get('curso')
+        score = 0.0
+        reasons = []
+        try:
+            level_name = None
+            try:
+                cn = str(course or '').lower()
+                cn = unicodedata.normalize('NFKD', cn).encode('ascii', 'ignore').decode('ascii')
+                if 'medio' in cn:
+                    level_name = 'medio'
+                elif 'basico' in cn:
+                    level_name = 'basico'
+            except Exception:
+                level_name = None
+            att_thr = attendance_threshold_default
+            grade_thr = low_perf_thr_default
+            if level_name and isinstance(level_thresholds.get(level_name), dict):
+                att_thr = float(level_thresholds[level_name].get('attendance', att_thr))
+                grade_thr = float(level_thresholds[level_name].get('grade', grade_thr))
+            if isinstance(avg, (int, float)) and avg is not None:
+                if avg < grade_thr:
+                    inc = max(0.0, min(40.0, (grade_thr - float(avg)) * 10.0))
+                    score += inc
+                    reasons.append('promedio_bajo')
+            if isinstance(att, (int, float)) and att is not None:
+                if float(att) < att_thr:
+                    inc = max(0.0, min(30.0, (att_thr - float(att)) * 100.0))
+                    score += inc
+                    reasons.append('asistencia_baja')
+            if isinstance(neg, int) and neg > 0:
+                inc = float(min(20, neg * 5))
+                score += inc
+                reasons.append('anotaciones_negativas')
+            if isinstance(fam, int) and fam > 0:
+                inc = float(min(20, fam * 5))
+                score += inc
+                reasons.append('situacion_familiar_compleja')
+            if isinstance(std_dev, (int, float)) and std_dev is not None:
+                if float(std_dev) > 1.0:
+                    inc = max(0.0, min(20.0, (float(std_dev) - 1.0) * 10.0))
+                    score += inc
+                    reasons.append('desbalance_asignaturas')
+            if db_path:
+                evo = get_student_grade_evolution_value(db_path, name)
+                if isinstance(evo, (int, float)):
+                    if float(evo) <= -0.5:
+                        score += 10.0
+                        reasons.append('tendencia_baja_notas')
+                    elif float(evo) >= 0.5:
+                        score -= 5.0
+                        reasons.append('tendencia_mejora_notas')
+                aev = get_student_attendance_evolution_value(db_path, name)
+                if isinstance(aev, (int, float)):
+                    if float(aev) <= -5.0:
+                        score += 8.0
+                        reasons.append('tendencia_baja_asistencia')
+                    elif float(aev) >= 5.0:
+                        score -= 4.0
+                        reasons.append('tendencia_mejora_asistencia')
+        except Exception:
+            pass
+        score = float(max(0.0, min(100.0, score)))
+        if score >= 70.0:
+            level = 'alto'
+        elif score >= 40.0:
+            level = 'medio'
+        else:
+            level = 'bajo'
+        risk[name] = {'score': int(round(score)), 'level': level, 'reasons': reasons, 'course': course}
+    return risk
+
+
+def build_risk_summary(fs: dict) -> dict:
+    scores = compute_risk_scores_from_feature_store(fs)
+    by_course = {}
+    totals = {'alto': 0, 'medio': 0, 'bajo': 0}
+    for name, r in scores.items():
+        c = r.get('course')
+        lvl = r.get('level')
+        if c:
+            m = by_course.setdefault(str(c), {'alto': 0, 'medio': 0, 'bajo': 0, 'top': []})
+            m[lvl] += 1
+            m['top'].append((name, r.get('score', 0)))
+        totals[lvl] += 1
+    for c, m in by_course.items():
+        m['top'] = sorted(m['top'], key=lambda x: x[1], reverse=True)[:5]
+    return {'scores': scores, 'by_course': by_course, 'totals': totals}
+
+
+def get_student_grade_evolution_value(db_path: str, student_name: str):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                WITH SnapshotAverages AS (
+                    SELECT h.snapshot_id, h.student_name, s.timestamp, AVG(h.grade) AS avg_grade
+                    FROM student_data_history h
+                    JOIN data_snapshots s ON h.snapshot_id = s.id
+                    WHERE h.student_name = ?
+                    GROUP BY h.snapshot_id, h.student_name, s.timestamp
+                )
+                SELECT
+                    FIRST_VALUE(avg_grade) OVER (ORDER BY timestamp ASC) AS first_avg_grade,
+                    LAST_VALUE(avg_grade) OVER (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS last_avg_grade
+                FROM SnapshotAverages
+                LIMIT 1
+                """,
+                (student_name,)
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+            row = rows[-1]
+            first_avg = row['first_avg_grade']
+            last_avg = row['last_avg_grade']
+            if first_avg is None or last_avg is None:
+                return None
+            return float(last_avg) - float(first_avg)
+    except Exception:
+        return None
+
+
+def get_student_attendance_evolution_value(db_path: str, student_name: str):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                WITH SnapshotAttendance AS (
+                    SELECT h.snapshot_id, h.student_name, s.timestamp, AVG(h.attendance_perc) AS avg_attendance
+                    FROM student_data_history h
+                    JOIN data_snapshots s ON h.snapshot_id = s.id
+                    WHERE h.student_name = ?
+                    GROUP BY h.snapshot_id, h.student_name, s.timestamp
+                )
+                SELECT
+                    FIRST_VALUE(avg_attendance) OVER (ORDER BY timestamp ASC) AS first_avg_attendance,
+                    LAST_VALUE(avg_attendance) OVER (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS last_avg_attendance
+                FROM SnapshotAttendance
+                LIMIT 1
+                """,
+                (student_name,)
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+            row = rows[-1]
+            first_att = row['first_avg_attendance']
+            last_att = row['last_avg_attendance']
+            if first_att is None or last_att is None:
+                return None
+            return float((last_att or 0) - (first_att or 0))
+    except Exception:
+        return None
+
+def save_intervention_outcome(db_path: str, follow_up_id: int, related_entity_type: str, related_entity_name: str, course_name: str, outcome_date: str, compliance_pct: float, impact_grade_delta: float, impact_attendance_delta: float, notes: str):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO intervention_outcomes (follow_up_id, related_entity_type, related_entity_name, course_name, outcome_date, compliance_pct, impact_grade_delta, impact_attendance_delta, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (follow_up_id, related_entity_type, related_entity_name, course_name, outcome_date, compliance_pct, impact_grade_delta, impact_attendance_delta, notes)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    except Exception as e:
+        print(f"Error al guardar resultado de intervención: {e}")
+        traceback.print_exc()
+        return None
+
+def get_intervention_effectiveness_summary(db_path: str, days_window: int = None):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            base = "SELECT related_entity_type, course_name, compliance_pct, impact_grade_delta, impact_attendance_delta FROM intervention_outcomes"
+            params = []
+            if isinstance(days_window, int) and days_window > 0:
+                base += " WHERE outcome_date >= date('now', ?)"
+                params.append(f"-{int(days_window)} day")
+            cursor.execute(base, tuple(params))
+            rows = cursor.fetchall()
+            if not rows:
+                return {'totals': {'count': 0, 'avg_compliance': None, 'avg_grade_delta': None, 'avg_att_delta': None}, 'by_course': {}}
+            count = len(rows)
+            comp_vals = [r['compliance_pct'] for r in rows if r['compliance_pct'] is not None]
+            grade_vals = [r['impact_grade_delta'] for r in rows if r['impact_grade_delta'] is not None]
+            att_vals = [r['impact_attendance_delta'] for r in rows if r['impact_attendance_delta'] is not None]
+            def avg(lst):
+                return float(sum(lst)/len(lst)) if lst else None
+            by_course = {}
+            for r in rows:
+                c = str(r['course_name']) if r['course_name'] is not None else ''
+                m = by_course.setdefault(c, {'count': 0, 'avg_compliance': None, 'avg_grade_delta': None, 'avg_att_delta': None, 'comp_values': [], 'grade_values': [], 'att_values': []})
+                m['count'] += 1
+                if r['compliance_pct'] is not None:
+                    m['comp_values'].append(r['compliance_pct'])
+                if r['impact_grade_delta'] is not None:
+                    m['grade_values'].append(r['impact_grade_delta'])
+                if r['impact_attendance_delta'] is not None:
+                    m['att_values'].append(r['impact_attendance_delta'])
+            for c, m in by_course.items():
+                m['avg_compliance'] = avg(m['comp_values'])
+                m['avg_grade_delta'] = avg(m['grade_values'])
+                m['avg_att_delta'] = avg(m['att_values'])
+                m.pop('comp_values', None)
+                m.pop('grade_values', None)
+                m.pop('att_values', None)
+            return {
+                'totals': {
+                    'count': int(count),
+                    'avg_compliance': avg(comp_vals),
+                    'avg_grade_delta': avg(grade_vals),
+                    'avg_att_delta': avg(att_vals)
+                },
+                'by_course': by_course
+            }
+    except Exception as e:
+        print(f"Error al obtener resumen de efectividad de intervenciones: {e}")
+        traceback.print_exc()
+        return {'totals': {'count': 0, 'avg_compliance': None, 'avg_grade_delta': None, 'avg_att_delta': None}, 'by_course': {}}
+
+
+def recommend_interventions_for_student(fs: dict, student_name: str) -> dict:
+    students = fs.get('students', {}) or {}
+    info = students.get(student_name) or {}
+    risk = compute_risk_scores_from_feature_store(fs).get(student_name) or {}
+    reasons = set(risk.get('reasons') or [])
+    course = info.get('curso')
+    peor_asig = (info.get('peor_asignatura') or {}).get('asignatura')
+    actions = []
+    def add(title, action, foundation):
+        actions.append({'title': title, 'action': action, 'foundation': foundation})
+    if 'promedio_bajo' in reasons:
+        subj_txt = f" en {peor_asig}" if peor_asig else ""
+        add(
+            f"Tutorías focalizadas{subj_txt}",
+            f"Asignar 2 sesiones semanales con metas de dominio y práctica espaciada{subj_txt}.",
+            "Basado en aprendizaje de dominio (Bloom) y práctica espaciada (Ebbinghaus)."
+        )
+        add(
+            "Evaluación formativa y retroalimentación específica",
+            "Instrumentos cortos por objetivo, retroalimentación inmediata y autoevaluación guiada.",
+            "Fundamentado en evaluación formativa y metacognición (Black & Wiliam)."
+        )
+    if 'asistencia_baja' in reasons or 'tendencia_baja_asistencia' in reasons:
+        add(
+            "Plan de asistencia y seguimiento",
+            "Contacto familia, compromisos semanales, incentivos y monitoreo quincenal.",
+            "PBIS y enfoques de compromiso escolar (Fredricks et al.)."
+        )
+    if 'anotaciones_negativas' in reasons:
+        add(
+            "Apoyo conductual positivo",
+            "Refuerzo diferencial, reglas claras, práctica de habilidades sociales, acuerdos de aula.",
+            "PBIS y aprendizaje socioemocional (CASEL)."
+        )
+        add(
+            "Prácticas restaurativas",
+            "Círculos breves para reparar daños y reconstruir vínculos con pares y docentes.",
+            "Restorative Practices (Wachtel)."
+        )
+    if 'situacion_familiar_compleja' in reasons:
+        add(
+            "Derivación a apoyo psicosocial",
+            "Coordinación con dupla psicosocial/DAEM y seguimiento confidencial.",
+            "Enfoque ecológico de Bronfenbrenner y protección integral."
+        )
+    if 'desbalance_asignaturas' in reasons and peor_asig:
+        add(
+            "Foco en asignatura más débil",
+            f"Plan de mejora específico en {peor_asig} con objetivos semanales y práctica guiada.",
+            "Aprendizaje guiado y andamiaje (Vygotsky)."
+        )
+    if 'tendencia_baja_notas' in reasons:
+        add(
+            "Escalamiento de apoyo académico",
+            "Aumentar intensidad de tutorías, revisión de hábitos de estudio y coordinación con familia.",
+            "Multi-tiered systems of support (MTSS)."
+        )
+    if not actions:
+        add(
+            "Seguimiento estándar",
+            "Mantener evaluación formativa y tutorías de refuerzo según necesidad.",
+            "Buenas prácticas docentes y ajuste por datos."
+        )
+    return {
+        'student': student_name,
+        'course': course,
+        'risk': risk,
+        'actions': actions
+    }

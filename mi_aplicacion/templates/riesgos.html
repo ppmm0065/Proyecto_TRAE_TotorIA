@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block panel_center_content %}
+<div class="max-w-7xl mx-auto">
+  <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Mapa de Riesgo</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+      <p class="text-slate-500 text-xs uppercase">Total Alto</p>
+      <p class="text-2xl font-bold text-rose-600">{{ summary.totals.alto }}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+      <p class="text-slate-500 text-xs uppercase">Total Medio</p>
+      <p class="text-2xl font-bold text-amber-600">{{ summary.totals.medio }}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+      <p class="text-slate-500 text-xs uppercase">Total Bajo</p>
+      <p class="text-2xl font-bold text-emerald-600">{{ summary.totals.bajo }}</p>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-3 mb-4">
+    <label class="text-sm text-slate-600">Filtrar por nivel:</label>
+    <select id="levelFilter" class="border border-slate-300 rounded-lg p-2 bg-white text-sm">
+      <option value="">Todos</option>
+      <option value="basico">Básico</option>
+      <option value="medio">Medio</option>
+    </select>
+    <label class="text-sm text-slate-600 ml-2">Filtrar por curso:</label>
+    <select id="courseFilter" class="border border-slate-300 rounded-lg p-2 bg-white text-sm">
+      <option value="">Todos</option>
+      {% for course, data in summary.by_course.items() %}
+        <option value="{{ course }}">{{ course }}</option>
+      {% endfor %}
+    </select>
+    <a href="{{ url_for('main.api_risk_summary') }}" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-sm">Ver JSON</a>
+    <a href="{{ url_for('main.api_risk_summary_export_csv') }}" class="text-indigo-600 hover:text-indigo-800 text-sm">Descargar CSV</a>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-4 mb-6">
+    <canvas id="riskChart" height="120"></canvas>
+  </div>
+
+  <h3 class="text-xl font-semibold text-slate-800 mb-3">Riesgos por Curso</h3>
+  <div id="coursesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 [grid-auto-flow:dense]">
+    {% for course, data in summary.by_course.items() %}
+      <div class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden hover:shadow-xl transition-shadow duration-300" data-course="{{ course }}">
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <i class="fas fa-school text-indigo-600 text-lg"></i>
+            </div>
+            <div>
+              <h3 class="font-semibold text-slate-900">{{ course }}</h3>
+              <p class="text-sm text-slate-500">Alto: <span class="text-rose-600 font-semibold">{{ data.alto }}</span> · Medio: <span class="text-amber-600 font-semibold">{{ data.medio }}</span> · Bajo: <span class="text-emerald-600 font-semibold">{{ data.bajo }}</span></p>
+            </div>
+          </div>
+          <div class="mt-2">
+            <p class="text-xs text-slate-500 uppercase mb-2">Top Estudiantes</p>
+            <ul class="space-y-2">
+              {% for name, score in data.top %}
+              <li class="flex items-center justify-between">
+                <div class="text-slate-700 truncate">
+                  <a href="{{ url_for('main.detalle_entidad', tipo_entidad='alumno', valor_codificado=name) }}" class="text-slate-800 font-semibold hover:text-indigo-700">{{ name }}</a>
+                  <span class="text-slate-500">({{ score }})</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <a href="{{ url_for('main.generar_reporte_360', tipo_entidad='alumno', valor_codificado=name) }}" class="inline-flex items-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-1 rounded-lg text-sm">
+                    <i class="fas fa-file-invoice mr-2"></i>
+                    <span>Reporte 360</span>
+                  </a>
+                  <a href="{{ url_for('main.api_suggest_interventions_alumno', valor_codificado=name) }}" target="_blank" class="inline-flex items-center bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold px-3 py-1 rounded-lg text-sm">
+                    <i class="fas fa-lightbulb mr-2"></i>
+                    <span>Ver Sugerencias</span>
+                  </a>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const summary = {{ summary|tojson }};
+function normalizeTxt(s){
+  return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[º°]/g,'').toLowerCase();
+}
+function levelOf(course){
+  const c = normalizeTxt(course);
+  if(c.indexOf('medio')>=0 || c.indexOf(' med ')>=0) return 'medio';
+  if(c.indexOf('basico')>=0 || c.indexOf(' bas ')>=0) return 'basico';
+  return '';
+}
+const courses = Object.keys(summary.by_course||{});
+const labels = courses;
+const highs = courses.map(c=> (summary.by_course[c]||{}).alto||0);
+const mediums = courses.map(c=> (summary.by_course[c]||{}).medio||0);
+const lows = courses.map(c=> (summary.by_course[c]||{}).bajo||0);
+const ctx = document.getElementById('riskChart').getContext('2d');
+let chart = new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:'Alto',data:highs,backgroundColor:'rgba(220,53,69,0.6)'},{label:'Medio',data:mediums,backgroundColor:'rgba(255,193,7,0.6)'},{label:'Bajo',data:lows,backgroundColor:'rgba(40,167,69,0.6)'}]},options:{responsive:true,maintainAspectRatio:false}});
+const levelFilter = document.getElementById('levelFilter');
+const courseFilter = document.getElementById('courseFilter');
+function applyFilters(){
+  const lf = normalizeTxt(levelFilter.value||'');
+  const cf = normalizeTxt(courseFilter.value||'');
+  const cards = document.querySelectorAll('#coursesGrid [data-course]');
+  cards.forEach(card=>{
+    const course = normalizeTxt(card.getAttribute('data-course')||'');
+    const okLevel = !lf || levelOf(course)===lf;
+    const okCourse = !cf || course===cf;
+    card.style.display = (okLevel && okCourse)?'':'none';
+  });
+  const filtered = courses.filter(c=>{
+    const nc = normalizeTxt(c);
+    const okLevel = !lf || levelOf(nc)===lf;
+    const okCourse = !cf || nc===cf;
+    return okLevel && okCourse;
+  });
+  chart.data.labels = filtered;
+  chart.data.datasets[0].data = filtered.map(c=> (summary.by_course[c]||{}).alto||0);
+  chart.data.datasets[1].data = filtered.map(c=> (summary.by_course[c]||{}).medio||0);
+  chart.data.datasets[2].data = filtered.map(c=> (summary.by_course[c]||{}).bajo||0);
+  chart.update();
+}
+levelFilter.addEventListener('change', applyFilters);
+courseFilter.addEventListener('change', applyFilters);
+</script>
+{% endblock %}

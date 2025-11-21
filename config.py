@@ -283,6 +283,12 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
 
     # Nivel de logging de la aplicación (INFO por defecto)
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+    
+    ATTENDANCE_RISK_THRESHOLD = float(os.environ.get('ATTENDANCE_RISK_THRESHOLD', 0.85))
+    RISK_THRESHOLDS_BY_LEVEL = {
+        'basico': {'attendance': 0.85, 'grade': 4.0},
+        'medio': {'attendance': 0.90, 'grade': 4.5}
+    }
 
 
 class DevelopmentConfig(Config):

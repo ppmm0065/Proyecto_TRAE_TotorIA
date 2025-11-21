@@ -54,6 +54,10 @@ from .app_logic import (
     get_observations_for_reporte_360,
     build_feature_store_from_csv,
     build_feature_store_signals,
+    build_risk_summary,
+    recommend_interventions_for_student,
+    save_intervention_outcome,
+    get_intervention_effectiveness_summary,
     get_lowest_grade_student_for_subject
 )
 from .utils import normalize_text, grade_to_qualitative
@@ -237,7 +241,108 @@ def generate_course_aliases(course_name: str) -> set:
         # con abreviaciones aplicadas también sin letra
         sin_letra_bas = sin_letra.replace(' basico ', ' bas ')
         sin_letra_med = sin_letra.replace(' medio ', ' med ')
-        aliases.add(' '.join(sin_letra_bas.split()))
+    aliases.add(' '.join(sin_letra_bas.split()))
+
+@main_bp.route('/api/risk_summary', methods=['GET'])
+def api_risk_summary():
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            return jsonify({'error': 'no_data'}), 400
+        fs = build_feature_store_from_csv(df)
+        summary = build_risk_summary(fs)
+        return jsonify(summary), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/risk_summary: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/api/risk_summary_export.csv', methods=['GET'])
+def api_risk_summary_export_csv():
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            return jsonify({'error': 'no_data'}), 400
+        fs = build_feature_store_from_csv(df)
+        summary = build_risk_summary(fs)
+        import io, csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Curso','Alto','Medio','Bajo'])
+        for course, data in (summary.get('by_course') or {}).items():
+            writer.writerow([course, data.get('alto',0), data.get('medio',0), data.get('bajo',0)])
+        csv_data = output.getvalue()
+        resp = Response(csv_data, mimetype='text/csv')
+        resp.headers['Content-Disposition'] = 'attachment; filename=risk_summary.csv'
+        return resp
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/risk_summary_export.csv: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/riesgos', methods=['GET'])
+def riesgos():
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            flash('No hay datos cargados para analizar riesgos.', 'warning')
+            return redirect(url_for('main.index'))
+        fs = build_feature_store_from_csv(df)
+        summary = build_risk_summary(fs)
+        return render_template('riesgos.html', summary=summary)
+    except Exception as e:
+        current_app.logger.exception(f"Error en /riesgos: {e}")
+        flash('Error al construir el resumen de riesgos.', 'danger')
+        return redirect(url_for('main.index'))
+
+@main_bp.route('/api/suggest_interventions/alumno/<path:valor_codificado>', methods=['GET'])
+def api_suggest_interventions_alumno(valor_codificado):
+    try:
+        nombre = unquote(valor_codificado)
+    except Exception:
+        return jsonify({'error': 'bad_request'}), 400
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            return jsonify({'error': 'no_data'}), 400
+        fs = build_feature_store_from_csv(df)
+        suggestions = recommend_interventions_for_student(fs, nombre)
+        return jsonify(suggestions), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/suggest_interventions/alumno: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/api/intervention_outcome', methods=['POST'])
+def api_intervention_outcome():
+    try:
+        data = request.json or {}
+        follow_up_id = data.get('follow_up_id')
+        related_entity_type = data.get('related_entity_type')
+        related_entity_name = data.get('related_entity_name')
+        course_name = data.get('course_name')
+        outcome_date = data.get('outcome_date')
+        compliance_pct = data.get('compliance_pct')
+        impact_grade_delta = data.get('impact_grade_delta')
+        impact_attendance_delta = data.get('impact_attendance_delta')
+        notes = data.get('notes')
+        db_path = current_app.config['DATABASE_FILE']
+        new_id = save_intervention_outcome(db_path, follow_up_id, related_entity_type, related_entity_name, course_name, outcome_date, compliance_pct, impact_grade_delta, impact_attendance_delta, notes)
+        if not new_id:
+            return jsonify({'error': 'save_failed'}), 500
+        return jsonify({'id': int(new_id)}), 201
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/intervention_outcome: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/api/intervention_effectiveness', methods=['GET'])
+def api_intervention_effectiveness():
+    try:
+        days = request.args.get('days')
+        dw = int(days) if days is not None and str(days).isdigit() else None
+        db_path = current_app.config['DATABASE_FILE']
+        summary = get_intervention_effectiveness_summary(db_path, dw)
+        return jsonify(summary), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/intervention_effectiveness: {e}")
+        return jsonify({'error': 'server_error'}), 500
         aliases.add(' '.join(sin_letra_med.split()))
         aliases.add(' '.join(sin_letra.replace(' medio ', ' m ').split()))
     # variantes sin espacios en número-etapa y etapa-letra (p.ej., '1m a' -> '1ma')
