@@ -2352,6 +2352,10 @@ def build_feature_store_from_csv(df_full: pd.DataFrame) -> dict:
                     )
                     # Para cada alumno, escoger la asignatura con menor promedio
                     for alumno, grp in proms.groupby(nombre_col):
+                        try:
+                            thr = float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0))
+                        except Exception:
+                            thr = 4.0
                         idx_min = grp[nota_col].idxmin()
                         row = grp.loc[idx_min]
                         peor_asig_por_alumno[str(alumno).strip()] = {
@@ -2371,6 +2375,8 @@ def build_feature_store_from_csv(df_full: pd.DataFrame) -> dict:
                             'std_dev': std_dev,
                             'rango': rng
                         }
+                        below_cnt = int((grp[nota_col] < thr).sum())
+                        consistencia_por_alumno[str(alumno).strip()]['subjects_below_threshold_count'] = below_cnt
             except Exception:
                 peor_asig_por_alumno = {}
 
@@ -2471,7 +2477,8 @@ def build_feature_store_from_csv(df_full: pd.DataFrame) -> dict:
                     'neg_annotations_count': neg_counts_por_alumno.get(name, 0),
                     'neg_annotations_examples': neg_examples_por_alumno.get(name, []),
                     'family_complexity_score': fam_complex_score.get(name, 0),
-                    'family_complexity_examples': fam_complex_examples.get(name, [])
+                    'family_complexity_examples': fam_complex_examples.get(name, []),
+                    'subjects_below_threshold_count': (consistencia_por_alumno.get(name) or {}).get('subjects_below_threshold_count', 0)
                 }
 
         # Cursos agregados
@@ -2817,6 +2824,24 @@ def compute_risk_scores_from_feature_store(fs: dict) -> dict:
             level = 'medio'
         else:
             level = 'bajo'
+        try:
+            subj_low_cnt = int(info.get('subjects_below_threshold_count', 0) or 0)
+        except Exception:
+            subj_low_cnt = 0
+        try:
+            base_thr = float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0))
+        except Exception:
+            base_thr = 4.0
+        if isinstance(avg, (int, float)) and avg is not None and float(avg) < base_thr:
+            level = 'alto'
+            score = max(score, 75.0)
+            if 'regla_promedio_bajo_alto' not in reasons:
+                reasons.append('regla_promedio_bajo_alto')
+        elif subj_low_cnt >= 2 and level != 'alto':
+            level = 'medio'
+            score = max(score, 40.0)
+            if 'regla_dos_asignaturas_bajas_medio' not in reasons:
+                reasons.append('regla_dos_asignaturas_bajas_medio')
         risk[name] = {'score': int(round(score)), 'level': level, 'reasons': reasons, 'course': course}
     return risk
 
