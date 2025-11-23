@@ -355,6 +355,11 @@
                                         <i class="fas fa-exclamation-triangle fa-fw"></i> Panel de Riesgos
                                     </a>
                                 </li>
+                                <li>
+                                    <a href="{{ url_for('main.efectividad_intervenciones') }}" class="menu-item menu-item-action {% if request.endpoint == 'main.efectividad_intervenciones' %}active{% endif %}">
+                                        <i class="fas fa-chart-line fa-fw"></i> Efectividad de Intervenciones
+                                    </a>
+                                </li>
                             </ul>
                         </li>
                         

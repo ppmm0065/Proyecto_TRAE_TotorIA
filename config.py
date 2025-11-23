@@ -290,6 +290,9 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
         'medio': {'attendance': 0.90, 'grade': 4.5}
     }
 
+    ENABLE_PREDICTIVE_MODEL_VIS = False
+    MODEL_ARTIFACTS_SUBDIR = 'model_artifacts'
+
 
 class DevelopmentConfig(Config):
     """Configuración para desarrollo."""

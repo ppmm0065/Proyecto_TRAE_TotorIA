@@ -3084,3 +3084,319 @@ def recommend_interventions_for_student(fs: dict, student_name: str) -> dict:
         'risk': risk,
         'actions': actions
     }
+
+def _list_snapshots(db_path):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, timestamp FROM data_snapshots ORDER BY timestamp ASC")
+            return [(r[0], r[1]) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+def _load_snapshot_dataframe(db_path, snapshot_id):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql_query(
+                "SELECT student_name, student_course, subject, grade, attendance_perc, conduct_observation, age, professor, family_info, interviews_info FROM student_data_history WHERE snapshot_id = ?",
+                conn,
+                params=(snapshot_id,)
+            )
+            return df
+    except Exception:
+        return None
+
+def _build_features_from_df(df):
+    df2 = df.copy()
+    df2['grade'] = pd.to_numeric(df2['grade'], errors='coerce')
+    df2['attendance_perc'] = pd.to_numeric(df2['attendance_perc'], errors='coerce')
+    df2['conduct_observation'] = df2['conduct_observation'].fillna('').astype(str).str.lower()
+    df2['family_info'] = df2['family_info'].fillna('').astype(str).str.lower()
+    neg_keys = current_app.config.get('NEGATIVE_OBSERVATION_KEYWORDS', []) or []
+    def _neg_count(text):
+        if not text:
+            return 0
+        c = 0
+        for k in neg_keys:
+            if k and k in text:
+                c += 1
+        return c
+    g = df2.groupby('student_name')
+    avg_grade = g['grade'].mean().fillna(0.0)
+    avg_att = g['attendance_perc'].mean().fillna(0.0)
+    neg_obs = g['conduct_observation'].apply(lambda s: sum(_neg_count(x) for x in s)).fillna(0)
+    fam_complex = g['family_info'].apply(lambda s: 1 if any(('separacion' in (x or '') or 'conflicto' in (x or '') or 'ausencia' in (x or '') or 'violencia' in (x or '')) for x in s) else (0 if all((x or '') == '' for x in s) else 1)).fillna(0)
+    out = {}
+    for name in avg_grade.index:
+        out[name] = {
+            'avg_grade': float(avg_grade.loc[name] or 0.0),
+            'attendance_perc': float(avg_att.loc[name] or 0.0),
+            'neg_observations': int(neg_obs.loc[name] or 0),
+            'family_complexity': int(fam_complex.loc[name] or 0)
+        }
+    return out
+
+def build_training_dataset_from_db(db_path):
+    snaps = _list_snapshots(db_path)
+    X = []
+    y = []
+    meta = []
+    last_feats = {}
+    for sid, ts in snaps:
+        df = _load_snapshot_dataframe(db_path, sid)
+        if df is None or df.empty:
+            continue
+        fs = build_feature_store_from_csv(df)
+        risks = compute_risk_scores_from_feature_store(fs)
+        feats = _build_features_from_df(df)
+        for student, f in feats.items():
+            prev = last_feats.get(student)
+            grade_trend = 0.0
+            att_trend = 0.0
+            if prev:
+                grade_trend = f['avg_grade'] - prev['avg_grade']
+                att_trend = f['attendance_perc'] - prev['attendance_perc']
+            label = 'bajo'
+            r = risks.get(student)
+            if isinstance(r, dict):
+                label = r.get('level') or label
+            X.append([
+                f['avg_grade'],
+                f['attendance_perc'],
+                float(f['neg_observations']),
+                float(f['family_complexity']),
+                grade_trend,
+                att_trend
+            ])
+            y.append(label)
+            meta.append({'snapshot_id': sid, 'timestamp': ts, 'student_name': student})
+        last_feats = feats
+    feature_names = ['avg_grade', 'attendance_perc', 'neg_observations', 'family_complexity', 'grade_trend', 'attendance_trend']
+    return {'X': X, 'y': y, 'meta': meta, 'feature_names': feature_names, 'snapshots': snaps}
+
+def _normalize_train_test(dataset):
+    snaps = dataset['snapshots']
+    if not snaps:
+        return None
+    last_sid = snaps[-1][0]
+    X_train = []
+    y_train = []
+    X_test = []
+    y_test = []
+    for i, row in enumerate(dataset['X']):
+        sid = dataset['meta'][i]['snapshot_id']
+        if sid == last_sid:
+            X_test.append(row)
+            y_test.append(dataset['y'][i])
+        else:
+            X_train.append(row)
+            y_train.append(dataset['y'][i])
+    if not X_train:
+        return None
+    cols = list(zip(*X_train))
+    means = [sum(c)/len(c) if len(c)>0 else 0.0 for c in cols]
+    stds = []
+    for idx, c in enumerate(cols):
+        m = means[idx]
+        var = sum((v-m)*(v-m) for v in c)/len(c) if len(c)>0 else 0.0
+        stds.append(var**0.5 if var>0 else 1.0)
+    def norm_rows(rows):
+        out = []
+        for r in rows:
+            out.append([(r[j]-means[j])/stds[j] for j in range(len(r))])
+        return out
+    return {
+        'X_train': norm_rows(X_train),
+        'y_train': y_train,
+        'X_test': norm_rows(X_test),
+        'y_test': y_test,
+        'means': means,
+        'stds': stds
+    }
+
+def _labels_to_indices(y):
+    classes = ['bajo', 'medio', 'alto']
+    return [classes.index(v) if v in classes else 0 for v in y], classes
+
+def _train_logistic_multiclass(X, y_idx, classes, epochs=200, lr=0.05, l2=0.001):
+    if not X:
+        return None
+    n = len(X)
+    d = len(X[0])
+    k = len(classes)
+    W = [[0.0 for _ in range(d)] for _ in range(k)]
+    b = [0.0 for _ in range(k)]
+    def _softmax(z):
+        m = max(z)
+        ez = [np.exp(v-m) for v in z]
+        s = float(np.sum(ez))
+        return [v/s for v in ez]
+    for _ in range(epochs):
+        for i in range(n):
+            xi = X[i]
+            yi = y_idx[i]
+            z = [sum(W[c][j]*xi[j] for j in range(d)) + b[c] for c in range(k)]
+            p = _softmax(z)
+            for c in range(k):
+                grad_b = (1.0 if c==yi else 0.0) - p[c]
+                b[c] += lr*grad_b
+                for j in range(d):
+                    grad_w = ((1.0 if c==yi else 0.0) - p[c]) * xi[j] - l2*W[c][j]
+                    W[c][j] += lr*grad_w
+    return {'W': W, 'b': b, 'classes': classes}
+
+def _predict_logistic(model, X):
+    W = model['W']
+    b = model['b']
+    classes = model['classes']
+    d = len(W[0])
+    k = len(classes)
+    def _softmax(z):
+        m = max(z)
+        ez = [np.exp(v-m) for v in z]
+        s = float(np.sum(ez))
+        return [v/s for v in ez]
+    preds = []
+    prob_high = []
+    for xi in X:
+        z = [sum(W[c][j]*xi[j] for j in range(d)) + b[c] for c in range(k)]
+        p = _softmax(z)
+        idx = max(range(k), key=lambda c: p[c])
+        preds.append(classes[idx])
+        prob_high.append(p[classes.index('alto')])
+    return preds, prob_high
+
+def _f1_macro(y_true, y_pred):
+    classes = ['bajo', 'medio', 'alto']
+    f1s = []
+    for c in classes:
+        tp = sum(1 for i in range(len(y_true)) if y_true[i]==c and y_pred[i]==c)
+        fp = sum(1 for i in range(len(y_true)) if y_true[i]!=c and y_pred[i]==c)
+        fn = sum(1 for i in range(len(y_true)) if y_true[i]==c and y_pred[i]!=c)
+        prec = tp/(tp+fp) if (tp+fp)>0 else 0.0
+        rec = tp/(tp+fn) if (tp+fn)>0 else 0.0
+        f1 = 2*prec*rec/(prec+rec) if (prec+rec)>0 else 0.0
+        f1s.append(f1)
+    return sum(f1s)/len(f1s) if f1s else 0.0
+
+def _auc_roc_binary(y_true_high, scores_high):
+    pairs = list(zip(scores_high, y_true_high))
+    pairs.sort(key=lambda x: x[0])
+    tps = 0
+    fps = 0
+    pos = sum(y_true_high)
+    neg = len(y_true_high)-pos
+    auc = 0.0
+    prev_score = None
+    prev_tpr = 0.0
+    prev_fpr = 0.0
+    for s, yb in pairs:
+        if prev_score is None or s != prev_score:
+            tpr = tps/pos if pos>0 else 0.0
+            fpr = fps/neg if neg>0 else 0.0
+            auc += (fpr - prev_fpr) * (tpr + prev_tpr) / 2.0
+            prev_tpr = tpr
+            prev_fpr = fpr
+            prev_score = s
+        if yb:
+            tps += 1
+        else:
+            fps += 1
+    tpr = tps/pos if pos>0 else 0.0
+    fpr = fps/neg if neg>0 else 0.0
+    auc += (fpr - prev_fpr) * (tpr + prev_tpr) / 2.0
+    return auc
+
+def train_predictive_risk_model(db_path, artifacts_dir):
+    ds = build_training_dataset_from_db(db_path)
+    split = _normalize_train_test(ds)
+    if not split:
+        return None
+    y_idx, classes = _labels_to_indices(split['y_train'])
+    model = _train_logistic_multiclass(split['X_train'], y_idx, classes)
+    preds_test, prob_high = _predict_logistic(model, split['X_test'])
+    f1_macro = _f1_macro(split['y_test'], preds_test)
+    y_true_high = [1 if v=='alto' else 0 for v in split['y_test']]
+    y_pred_bin = ['alto' if p=='alto' else 'no_alto' for p in preds_test]
+    y_true_bin = ['alto' if v==1 else 'no_alto' for v in y_true_high]
+    f1_bin = _f1_macro(y_true_bin, y_pred_bin)
+    auc = _auc_roc_binary(y_true_high, prob_high)
+    params = {
+        'feature_names': ds['feature_names'],
+        'means': split['means'],
+        'stds': split['stds'],
+        'classes': classes
+    }
+    metrics = {
+        'macro_f1_3clases': f1_macro,
+        'f1_binario_alto_vs_no': f1_bin,
+        'auc_roc_binario': auc,
+        'train_size': len(split['X_train']),
+        'test_size': len(split['X_test'])
+    }
+    try:
+        import pickle
+        with open(os.path.join(artifacts_dir, 'predictive_risk_model.pkl'), 'wb') as f:
+            pickle.dump({'model': model, 'params': params}, f)
+    except Exception:
+        pass
+    with open(os.path.join(artifacts_dir, 'predictive_risk_model_metrics.json'), 'w', encoding='utf-8') as f:
+        json.dump({'params': params, 'metrics': metrics}, f)
+    return metrics
+
+def predict_risk_with_model_for_fs(fs, artifacts_dir):
+    path = os.path.join(artifacts_dir, 'predictive_risk_model.pkl')
+    if not os.path.exists(path):
+        return {}
+    try:
+        import pickle
+        obj = pickle.load(open(path, 'rb'))
+    except Exception:
+        return {}
+    params = obj.get('params') or {}
+    model = obj.get('model') or {}
+    students = list((fs.get('students') or {}).keys())
+    rows = []
+    for s in students:
+        info = (fs.get('students') or {}).get(s) or {}
+        avg_grade = float(info.get('promedio') or 0.0)
+        attendance = float(info.get('asistencia') or 0.0)
+        neg = int(info.get('neg_annotations_count') or 0)
+        fam = int(info.get('family_complexity_score') or 0)
+        rows.append([avg_grade, attendance, float(neg), float(fam), 0.0, 0.0])
+    means = params.get('means') or ([0.0]*len(rows[0]) if rows else [])
+    stds = params.get('stds') or ([1.0]*len(rows[0]) if rows else [])
+    def _norm_row(r):
+        return [(r[j]-means[j])/stds[j] for j in range(len(r))]
+    Xn = [_norm_row(r) for r in rows]
+    preds, prob_high = _predict_logistic(model, Xn) if rows else ([], [])
+    out = {}
+    for i, s in enumerate(students):
+        out[s] = {'predicted_level': preds[i] if i < len(preds) else None, 'prob_high': prob_high[i] if i < len(prob_high) else None}
+    return out
+
+def reset_database_tables(db_path: str, tables: list = None):
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            if not tables:
+                tables = [
+                    'student_data_history',
+                    'data_snapshots',
+                    'follow_ups',
+                    'intervention_outcomes',
+                    'consumo_tokens_diario'
+                ]
+            for t in tables:
+                try:
+                    cursor.execute(f"DELETE FROM {t}")
+                except Exception:
+                    pass
+            try:
+                cursor.execute("VACUUM")
+            except Exception:
+                pass
+            conn.commit()
+        return True
+    except Exception:
+        return False

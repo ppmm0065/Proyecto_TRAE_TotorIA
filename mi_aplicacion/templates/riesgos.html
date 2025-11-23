@@ -161,7 +161,7 @@ resetSensitivity.addEventListener('click', ()=>{
   fetch("{{ url_for('main.api_risk_sensitivity') }}", {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reset:true})}).then(()=>{ location.reload(); }).catch(()=>{});
 });
 </script>
-{% endblock %}
+<script>
 function recomputeTotals(){
   const lf = normalizeTxt(levelFilter.value||'');
   const cf = normalizeTxt(courseFilter.value||'');
@@ -191,6 +191,7 @@ function recomputeTotals(){
   if(tmp) tmp.textContent = pct(m);
   if(tlp) tlp.textContent = pct(b);
 }
-
 // Inicializar totales acorde a filtros actuales
-recomputeTotals();
+document.addEventListener('DOMContentLoaded', recomputeTotals);
+</script>
+{% endblock %}

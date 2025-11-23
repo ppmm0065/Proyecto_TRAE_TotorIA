@@ -59,6 +59,11 @@ from .app_logic import (
     compute_risk_scores_from_feature_store,
     save_intervention_outcome,
     get_intervention_effectiveness_summary,
+    predict_risk_with_model_for_fs,
+    train_predictive_risk_model,
+    get_student_grade_evolution_value,
+    get_student_attendance_evolution_value,
+    reset_database_tables,
     get_lowest_grade_student_for_subject
 )
 from .utils import normalize_text, grade_to_qualitative
@@ -425,7 +430,14 @@ def riesgos_por_curso_nivel(level, course):
                     'reasons': info.get('reasons', [])
                 })
         students.sort(key=lambda x: x['score'], reverse=True)
-        return render_template('riesgos_nivel_detalle.html', course=course, level=level, students=students)
+        model_preds = {}
+        try:
+            if bool(current_app.config.get('ENABLE_PREDICTIVE_MODEL_VIS')):
+                preds = predict_risk_with_model_for_fs(fs, current_app.config.get('MODEL_ARTIFACTS_DIR'))
+                model_preds = preds or {}
+        except Exception:
+            model_preds = {}
+        return render_template('riesgos_nivel_detalle.html', course=course, level=level, students=students, model_preds=model_preds)
     except Exception as e:
         current_app.logger.exception(f"Error en /riesgos/curso/{level}/{course}: {e}")
         flash('Error al construir la vista por nivel de riesgo.', 'danger')
@@ -2378,3 +2390,81 @@ def api_consumo_totales():
     except Exception as e:
         current_app.logger.exception(f"Error al obtener totales de consumo: {e}")
         return jsonify({"error": "No se pudieron obtener los totales de consumo."}), 500
+@main_bp.route('/efectividad', methods=['GET'])
+def efectividad_intervenciones():
+    try:
+        db_path = current_app.config['DATABASE_FILE']
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT related_entity_name FROM follow_ups WHERE follow_up_type = 'intervention_plan' AND related_entity_type = 'alumno'")
+            rows = cur.fetchall()
+            alumnos = [r['related_entity_name'] for r in rows]
+        data = []
+        for nombre in alumnos:
+            grade_delta = get_student_grade_evolution_value(db_path, nombre)
+            att_delta = get_student_attendance_evolution_value(db_path, nombre)
+            data.append({'student': nombre, 'grade_delta': grade_delta, 'attendance_delta': att_delta})
+        return render_template('efectividad_intervenciones.html', data=data)
+    except Exception as e:
+        current_app.logger.exception(f"Error en /efectividad: {e}")
+        flash('Error al construir la vista de efectividad.', 'danger')
+        return redirect(url_for('main.index'))
+
+@main_bp.route('/api/train_risk_model', methods=['POST'])
+def api_train_risk_model():
+    try:
+        metrics = train_predictive_risk_model(current_app.config['DATABASE_FILE'], current_app.config['MODEL_ARTIFACTS_DIR'])
+        if metrics is None:
+            return jsonify({'error': 'no_data'}), 400
+        return jsonify(metrics), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/train_risk_model: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/api/reset_database', methods=['POST'])
+def api_reset_database():
+    try:
+        flags = request.json or {}
+        db_path = current_app.config['DATABASE_FILE']
+        ok = reset_database_tables(db_path)
+        if not ok:
+            return jsonify({'error': 'reset_failed'}), 500
+        if bool(flags.get('remove_artifacts')):
+            try:
+                import shutil
+                artifacts_dir = current_app.config.get('MODEL_ARTIFACTS_DIR')
+                if artifacts_dir and os.path.isdir(artifacts_dir):
+                    for name in os.listdir(artifacts_dir):
+                        p = os.path.join(artifacts_dir, name)
+                        if os.path.isdir(p):
+                            shutil.rmtree(p, ignore_errors=True)
+                        else:
+                            try:
+                                os.remove(p)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+        if bool(flags.get('remove_vectorstores')):
+            try:
+                import shutil
+                vp = current_app.config.get('FAISS_INDEX_PATH')
+                vpf = current_app.config.get('FAISS_FOLLOWUP_INDEX_PATH')
+                for d in [vp, vpf]:
+                    if d and os.path.isdir(d):
+                        shutil.rmtree(d, ignore_errors=True)
+                try:
+                    reload_institutional_context_vector_store()
+                except Exception:
+                    pass
+                try:
+                    reload_followup_vector_store()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return jsonify({'status': 'ok'}), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/reset_database: {e}")
+        return jsonify({'error': 'server_error'}), 500

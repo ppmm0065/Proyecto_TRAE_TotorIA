@@ -1,9 +1,26 @@
 import pandas as pd
 import random
-from faker import Faker
 import datetime
 import json
 import os
+CHILE_FIRST_NAMES = [
+    'María','Alicia','Claudia','Marisol','Lucía','Francisca','Paola','Paula','Pedro','Pablo',
+    'Francisco','Julio','Esteban','Mario','Ana','Camila','Sofía','Valentina','José','Felipe',
+    'Daniela','Andrea','Martina','Isabella','Diego','Carlos','Miguel','Luis','Javiera','Constanza',
+    'Sebastián','Matías','Nicolás','Tomás','Benjamín','Antonia','Catalina','Fernanda','Ignacio','Gabriela'
+]
+CHILE_LAST_NAMES = [
+    'Aguirre','Baltra','Miranda','Morales','Gutiérrez','Arteaga','Márquez','Prieto','López','González',
+    'Muñoz','Rojas','Díaz','Pérez','Soto','Silva','Contreras','Sepúlveda','Herrera','Araya',
+    'Vega','Tapia','Campos','Ramírez','Reyes','Castro','Hidalgo','Figueroa','Valenzuela','Pizarro',
+    'Ibarra','Saavedra','Ortega','Riquelme','Escobar','Carrasco','Leiva','Romero','Vásquez','Salazar'
+]
+def fake_first():
+    return random.choice(CHILE_FIRST_NAMES)
+def fake_last():
+    return random.choice(CHILE_LAST_NAMES)
+def fake_name():
+    return f"{fake_first()} {fake_last()}"
 
 # --- CONFIGURACIÓN ---
 NUM_ESTUDIANTES = 800
@@ -112,7 +129,7 @@ def _generar_lista_promedios_objetivo():
     return lista_promedios
 
 # --- INICIALIZACIÓN ---
-fake = Faker('es_ES') # Nombres en español
+fake = None
 
 # --- LÍNEA AÑADIDA ---
 # Forzamos una nueva semilla aleatoria basada en la hora actual
@@ -151,7 +168,10 @@ if os.path.exists(ROSTER_FILE):
     for i, est in enumerate(estudiantes):
         # Actualizar datos que pueden variar
         est["asistencia"] = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
-        est["profesor"] = f"{fake.first_name()} {fake.last_name()}"
+        est["profesor"] = f"{fake_first()} {fake_last()}"
+        est["nombre"] = f"{fake_first()} {fake_last()} {fake_last()}"
+        est["Familia"] = f"Apoderado: {fake_name()}"
+        hubo_actualizacion = True
         
         # FIX Entrevistas (de la vez anterior)
         if "Entrevistas" not in est or est["Entrevistas"] == "Sin entrevistas registradas.":
@@ -190,7 +210,7 @@ else:
                     print("Agotada lista de promedios, rellenando...")
                     lista_promedios_para_generar.append(random.uniform(4.0, 5.0))
                     
-                nombre = f"{fake.first_name()} {fake.last_name()} {fake.last_name()}"
+                nombre = f"{fake_first()} {fake_last()} {fake_last()}"
                 
                 if "Básico" in grado:
                     edad = random.randint(RANGO_EDAD_BASICA[0], RANGO_EDAD_BASICA[1])
@@ -207,8 +227,8 @@ else:
                     "asignaturas": asignaturas,
                     "materias_debiles": random.choice(MATERIAS_DEBILES_EJEMPLOS) if random.random() < 0.3 else "", # 30% tiene una materia débil
                     "asistencia": round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2),
-                    "profesor": f"{fake.first_name()} {fake.last_name()}",
-                    "Familia": f"Apoderado: {fake.name()}",
+                    "profesor": f"{fake_first()} {fake_last()}",
+                    "Familia": f"Apoderado: {fake_name()}",
                     "Entrevistas": random.choice(ENTREVISTAS_EJEMPLOS) if random.random() < PROBABILIDAD_ENTREVISTA else "Sin entrevistas registradas.",
                     # --- LÍNEA AÑADIDA ---
                     "promedio_objetivo": round(lista_promedios_para_generar.pop(), 2)
@@ -227,57 +247,73 @@ else:
 # --- GENERACIÓN DE DATOS (NOTAS Y OBSERVACIONES) ---
 print("Generando datos de asignaturas, notas y observaciones (nuevos)...")
 for est in estudiantes:
-    
-    # 1. Obtener el promedio objetivo del estudiante (del Roster)
     promedio_obj = est["promedio_objetivo"]
-    
+    texto_ent = str(est.get("Entrevistas", "")).lower()
+    kw = ["separacion","violencia","maltrato","abuso","tdah","acoso","falta de respeto","preocupacion","diagnostico","protocolo"]
+    es_familia_compleja = any(k in texto_ent for k in kw)
+    registros_estudiante = []
     for asignatura in est["asignaturas"]:
-        
-        # 2. Centrar la nota en el promedio objetivo
         nota_base = promedio_obj
-        
-        # 3. Añadir variabilidad por asignatura (algunas le irá mejor, otras peor)
-        # Un estudiante 5.9 no tendrá 5.9 en todo.
-        variacion_asignatura = random.uniform(-0.8, 0.8) # Rango de variación
+        variacion_asignatura = random.uniform(-0.8, 0.8)
         nota = nota_base + variacion_asignatura
-        
-        # 4. Ajustar nota si es materia débil (se mantiene la lógica)
         if est["materias_debiles"] and est["materias_debiles"] in asignatura:
-            nota -= 1.0 # Penalización por materia débil
-            
-        # 5. Asegurar que la nota esté en el rango (2.0 a 7.0)
+            nota -= 1.0
+        if es_familia_compleja:
+            nota -= 0.3
         nota = round(nota, 1)
-        nota = max(RANGO_NOTAS[0], min(RANGO_NOTAS[1], nota)) # Clamp
-        
-        # 6. Generar observación (se mantiene la lógica)
+        nota = max(RANGO_NOTAS[0], min(RANGO_NOTAS[1], nota))
         observacion = ""
         if random.random() < PROBABILIDAD_OBSERVACION:
             if nota < 4.0:
                 observacion = random.choice(OBSERVACIONES_NEGATIVAS)
             elif nota > 6.0:
                 observacion = random.choice(OBSERVACIONES_POSITIVAS)
-            elif random.random() < 0.5:
-                 observacion = random.choice(OBSERVACIONES_NEGATIVAS)
             else:
-                 observacion = random.choice(OBSERVACIONES_POSITIVAS)
-        
-        registro = {
+                pos_prob = 0.5
+                if promedio_obj >= 6.0:
+                    pos_prob = 0.85
+                elif promedio_obj <= 4.2:
+                    pos_prob = 0.15
+                observacion = random.choice(OBSERVACIONES_POSITIVAS) if random.random() < pos_prob else random.choice(OBSERVACIONES_NEGATIVAS)
+        registros_estudiante.append({"Asignatura": asignatura, "Nota": nota, "Observacion de conducta": observacion})
+    if promedio_obj < 5.0:
+        idxs_bajo = [i for i, r in enumerate(registros_estudiante) if r["Nota"] < 4.0]
+        n = len(registros_estudiante)
+        objetivo = random.randint(1, 3)
+        if objetivo >= n:
+            objetivo = min(3, max(1, n - 1))
+        if len(idxs_bajo) == 0:
+            seleccion = random.sample(range(n), objetivo)
+            for i in seleccion:
+                registros_estudiante[i]["Nota"] = round(random.uniform(3.0, 3.9), 1)
+        elif len(idxs_bajo) > objetivo:
+            subir = len(idxs_bajo) - objetivo
+            a_subir = random.sample(idxs_bajo, subir)
+            for i in a_subir:
+                registros_estudiante[i]["Nota"] = round(random.uniform(4.0, 4.5), 1)
+        elif len(idxs_bajo) == n:
+            ajustar = max(1, n - objetivo)
+            a_ajustar = random.sample(range(n), ajustar)
+            for i in a_ajustar:
+                registros_estudiante[i]["Nota"] = round(random.uniform(4.0, 4.5), 1)
+    if all(r["Nota"] < 4.0 for r in registros_estudiante):
+        j = random.randrange(len(registros_estudiante))
+        registros_estudiante[j]["Nota"] = round(random.uniform(4.0, 4.5), 1)
+    for r in registros_estudiante:
+        datos_completos.append({
             "ID Estudiante": est["id_estudiante"],
             "Nombre": est["nombre"],
             "curso": est["curso"],
             "edad": est["edad"],
-            "Asignatura": asignatura,
-            "Nota": nota,
-            "Observacion de conducta": observacion,
+            "Asignatura": r["Asignatura"],
+            "Nota": r["Nota"],
+            "Observacion de conducta": r["Observacion de conducta"],
             "materias_debiles": est["materias_debiles"],
             "Asistencia": est["asistencia"],
             "profesor": est["profesor"],
             "Familia": est["Familia"],
-            "Entrevistas": est["Entrevistas"],
-            # --- Dato Opcional (para depuración) ---
-            # "Promedio_Objetivo_Debug": est["promedio_objetivo"] 
-        }
-        datos_completos.append(registro)
+            "Entrevistas": est["Entrevistas"]
+        })
 
 # --- CREACIÓN Y GUARDADO DEL DATAFRAME ---
 print(f"Creando DataFrame y guardando en '{ARCHIVO_SALIDA}'...")

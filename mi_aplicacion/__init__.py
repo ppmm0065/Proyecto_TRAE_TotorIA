@@ -64,14 +64,17 @@ def create_app(config_name='dev'):
     app.config['DATABASE_FILE'] = os.path.join(project_root_for_paths, app.config.get('DATABASE_FILE', 'seguimiento_fallback.db'))
     app.config['FAISS_INDEX_PATH'] = os.path.join(project_root_for_paths, app.config.get('FAISS_INDEX_PATH', 'faiss_index_multi_fallback'))
     app.config['FAISS_FOLLOWUP_INDEX_PATH'] = os.path.join(project_root_for_paths, app.config.get('FAISS_FOLLOWUP_INDEX_PATH', 'faiss_index_followups_fallback'))
+    app.config['MODEL_ARTIFACTS_DIR'] = os.path.join(app.instance_path, app.config.get('MODEL_ARTIFACTS_SUBDIR', 'model_artifacts'))
 
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['CONTEXT_DOCS_FOLDER'], exist_ok=True)
     os.makedirs(os.path.dirname(app.config['FAISS_INDEX_PATH']), exist_ok=True)
     os.makedirs(os.path.dirname(app.config['FAISS_FOLLOWUP_INDEX_PATH']), exist_ok=True)
+    os.makedirs(app.config['MODEL_ARTIFACTS_DIR'], exist_ok=True)
     
     print(f"UPLOAD_FOLDER configurado en: {app.config['UPLOAD_FOLDER']}")
     print(f"CONTEXT_DOCS_FOLDER configurado en: {app.config['CONTEXT_DOCS_FOLDER']}")
+    print(f"MODEL_ARTIFACTS_DIR configurado en: {app.config['MODEL_ARTIFACTS_DIR']}")
 
     # Configurar logging según configuración
     level_name = str(app.config.get('LOG_LEVEL', 'INFO')).upper()
