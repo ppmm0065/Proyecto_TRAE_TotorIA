@@ -56,6 +56,7 @@ from .app_logic import (
     build_feature_store_signals,
     build_risk_summary,
     recommend_interventions_for_student,
+    compute_risk_scores_from_feature_store,
     save_intervention_outcome,
     get_intervention_effectiveness_summary,
     get_lowest_grade_student_for_subject
@@ -278,6 +279,45 @@ def api_risk_summary_export_csv():
         current_app.logger.exception(f"Error en /api/risk_summary_export.csv: {e}")
         return jsonify({'error': 'server_error'}), 500
 
+@main_bp.route('/api/risk_sensitivity', methods=['GET', 'POST'])
+def api_risk_sensitivity():
+    try:
+        if request.method == 'GET':
+            defaults = {
+                'avg_below_high_threshold': float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0)),
+                'subjects_below_medium_count': 2,
+                'neg_observations_medium_count': 2,
+                'neg_observations_high_count': 4
+            }
+            overrides = session.get('risk_sensitivity') or {}
+            result = {**defaults, **overrides}
+            return jsonify(result), 200
+        data = request.json or {}
+        if data.get('reset'):
+            session.pop('risk_sensitivity', None)
+            return jsonify({'message': 'reset'}), 200
+        cleaned = {}
+        def as_float(v, d):
+            try:
+                return float(v)
+            except Exception:
+                return d
+        def as_int(v, d):
+            try:
+                return int(v)
+            except Exception:
+                return d
+        cleaned['avg_below_high_threshold'] = as_float(data.get('avg_below_high_threshold'), float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0)))
+        cleaned['subjects_below_medium_count'] = as_int(data.get('subjects_below_medium_count'), 2)
+        cleaned['neg_observations_medium_count'] = as_int(data.get('neg_observations_medium_count'), 2)
+        cleaned['neg_observations_high_count'] = as_int(data.get('neg_observations_high_count'), 4)
+        session['risk_sensitivity'] = cleaned
+        session.modified = True
+        return jsonify({'message': 'saved', 'overrides': cleaned}), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/risk_sensitivity: {e}")
+        return jsonify({'error': 'server_error'}), 500
+
 @main_bp.route('/riesgos', methods=['GET'])
 def riesgos():
     try:
@@ -309,6 +349,26 @@ def api_suggest_interventions_alumno(valor_codificado):
     except Exception as e:
         current_app.logger.exception(f"Error en /api/suggest_interventions/alumno: {e}")
         return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/sugerencias/alumno/<path:valor_codificado>', methods=['GET'])
+def ver_sugerencias_alumno(valor_codificado):
+    try:
+        nombre = unquote(valor_codificado)
+    except Exception:
+        flash('Nombre de alumno inválido.', 'danger')
+        return redirect(url_for('main.riesgos'))
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            flash('No hay datos cargados para generar sugerencias.', 'warning')
+            return redirect(url_for('main.riesgos'))
+        fs = build_feature_store_from_csv(df)
+        sugg = recommend_interventions_for_student(fs, nombre)
+        return render_template('sugerencias_alumno.html', suggestion=sugg)
+    except Exception as e:
+        current_app.logger.exception(f"Error en ver_sugerencias_alumno: {e}")
+        flash('Error al generar sugerencias.', 'danger')
+        return redirect(url_for('main.riesgos'))
 
 @main_bp.route('/api/intervention_outcome', methods=['POST'])
 def api_intervention_outcome():
@@ -343,6 +403,87 @@ def api_intervention_effectiveness():
     except Exception as e:
         current_app.logger.exception(f"Error en /api/intervention_effectiveness: {e}")
         return jsonify({'error': 'server_error'}), 500
+
+@main_bp.route('/riesgos/curso/<level>/<path:course>', methods=['GET'])
+def riesgos_por_curso_nivel(level, course):
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            flash('No hay datos cargados para analizar riesgos.', 'warning')
+            return redirect(url_for('main.index'))
+        fs = build_feature_store_from_csv(df)
+        scores = compute_risk_scores_from_feature_store(fs)
+        level = str(level).lower()
+        students = []
+        course_norm = normalize_text(course)
+        for name, info in (scores or {}).items():
+            info_course = normalize_text(str(info.get('course') or ''))
+            if info_course == course_norm and str(info.get('level') or '').lower() == level:
+                students.append({
+                    'name': name,
+                    'score': info.get('score', 0),
+                    'reasons': info.get('reasons', [])
+                })
+        students.sort(key=lambda x: x['score'], reverse=True)
+        return render_template('riesgos_nivel_detalle.html', course=course, level=level, students=students)
+    except Exception as e:
+        current_app.logger.exception(f"Error en /riesgos/curso/{level}/{course}: {e}")
+        flash('Error al construir la vista por nivel de riesgo.', 'danger')
+        return redirect(url_for('main.riesgos'))
+
+@main_bp.route('/sugerencias/alumno/<path:valor_codificado>/guardar_borrador', methods=['POST'])
+def guardar_borrador_sugerencias_alumno(valor_codificado):
+    try:
+        nombre = unquote(valor_codificado)
+    except Exception:
+        flash('Nombre de alumno inválido.', 'danger')
+        return redirect(url_for('main.riesgos'))
+    try:
+        df = get_dataframe_from_session_file()
+        if df is None or df.empty:
+            flash('No hay datos cargados para guardar borrador.', 'warning')
+            return redirect(url_for('main.riesgos'))
+        fs = build_feature_store_from_csv(df)
+        sugg = recommend_interventions_for_student(fs, nombre)
+        parts = []
+        parts.append('<h2>Plan de Intervención (Borrador)</h2>')
+        parts.append(f"<p><strong>Alumno:</strong> {sugg.get('student','')}</p>")
+        parts.append(f"<p><strong>Curso:</strong> {sugg.get('course','')}</p>")
+        risk = sugg.get('risk') or {}
+        parts.append(f"<p><strong>Nivel de riesgo:</strong> {risk.get('level','')}</p>")
+        reasons = risk.get('reasons') or []
+        if reasons:
+            parts.append('<p><strong>Razones:</strong></p><ul>')
+            for r in reasons[:6]:
+                parts.append(f"<li>{r}</li>")
+            parts.append('</ul>')
+        actions = sugg.get('actions') or []
+        if actions:
+            parts.append('<h3>Acciones Recomendadas</h3>')
+            parts.append('<ol>')
+            for a in actions:
+                title = a.get('title','')
+                action = a.get('action','')
+                foundation = a.get('foundation','')
+                parts.append(f"<li><p><strong>{title}</strong></p><p>{action}</p><p><em>Fundamento:</em> {foundation}</p></li>")
+            parts.append('</ol>')
+        plan_html = ''.join(parts)
+        csv_path = session.get('current_file_path') or ''
+        csv_filename = os.path.basename(csv_path) if csv_path else ''
+        new_id = save_intervention_plan_to_db(current_app.config['DATABASE_FILE'], csv_filename, 'alumno', nombre, plan_html, 'Borrador generado desde sugerencias')
+        try:
+            reload_followup_vector_store()
+        except Exception:
+            pass
+        if new_id:
+            flash('Borrador de Plan de Intervención guardado.', 'success')
+        else:
+            flash('No se pudo guardar el borrador.', 'danger')
+        return redirect(url_for('main.ver_sugerencias_alumno', valor_codificado=valor_codificado))
+    except Exception as e:
+        current_app.logger.exception(f"Error al guardar borrador de sugerencias: {e}")
+        flash('Error al guardar borrador.', 'danger')
+        return redirect(url_for('main.riesgos'))
         aliases.add(' '.join(sin_letra_med.split()))
         aliases.add(' '.join(sin_letra.replace(' medio ', ' m ').split()))
     # variantes sin espacios en número-etapa y etapa-letra (p.ej., '1m a' -> '1ma')

@@ -2742,6 +2742,11 @@ def compute_risk_scores_from_feature_store(fs: dict) -> dict:
     levels = fs.get('levels', {}) or {}
     attendance_threshold_default = float(current_app.config.get('ATTENDANCE_RISK_THRESHOLD', 0.85))
     low_perf_thr_default = float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0))
+    ovr = session.get('risk_sensitivity') or {}
+    avg_below_high_thr = float(ovr.get('avg_below_high_threshold', low_perf_thr_default))
+    subj_below_medium_cnt = int(ovr.get('subjects_below_medium_count', 2))
+    neg_obs_medium_cnt = int(ovr.get('neg_observations_medium_count', 2))
+    neg_obs_high_cnt = int(ovr.get('neg_observations_high_count', 4))
     level_thresholds = current_app.config.get('RISK_THRESHOLDS_BY_LEVEL') or {}
     risk = {}
     db_path = None
@@ -2828,20 +2833,27 @@ def compute_risk_scores_from_feature_store(fs: dict) -> dict:
             subj_low_cnt = int(info.get('subjects_below_threshold_count', 0) or 0)
         except Exception:
             subj_low_cnt = 0
-        try:
-            base_thr = float(current_app.config.get('LOW_PERFORMANCE_THRESHOLD_GRADE', 4.0))
-        except Exception:
-            base_thr = 4.0
-        if isinstance(avg, (int, float)) and avg is not None and float(avg) < base_thr:
+        if isinstance(avg, (int, float)) and avg is not None and float(avg) < avg_below_high_thr:
             level = 'alto'
             score = max(score, 75.0)
             if 'regla_promedio_bajo_alto' not in reasons:
                 reasons.append('regla_promedio_bajo_alto')
-        elif subj_low_cnt >= 2 and level != 'alto':
+        elif subj_low_cnt >= subj_below_medium_cnt and level != 'alto':
             level = 'medio'
             score = max(score, 40.0)
             if 'regla_dos_asignaturas_bajas_medio' not in reasons:
                 reasons.append('regla_dos_asignaturas_bajas_medio')
+        if isinstance(neg, int):
+            if neg_obs_high_cnt and neg >= neg_obs_high_cnt:
+                level = 'alto'
+                score = max(score, 75.0)
+                if 'regla_observaciones_negativas_alto' not in reasons:
+                    reasons.append('regla_observaciones_negativas_alto')
+            elif neg_obs_medium_cnt and neg >= neg_obs_medium_cnt and level != 'alto':
+                level = 'medio'
+                score = max(score, 40.0)
+                if 'regla_observaciones_negativas_medio' not in reasons:
+                    reasons.append('regla_observaciones_negativas_medio')
         risk[name] = {'score': int(round(score)), 'level': level, 'reasons': reasons, 'course': course}
     return risk
 
