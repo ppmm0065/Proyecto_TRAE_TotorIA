@@ -198,35 +198,31 @@ def any_keyword_in_prompt(prompt_text: str, keywords: list) -> bool:
     for kw in keywords:
         if not kw:
             continue
-    if normalize_text(kw) in pt_norm:
+        if normalize_text(kw) in pt_norm:
             return True
     return False
 
 # Aliases de cursos para detección robusta
 def generate_course_aliases(course_name: str) -> set:
+    import re
     aliases = set()
     if not course_name:
         return aliases
-    # base normalizado
     base_norm = normalize_text(course_name)
-    aliases.add(base_norm)
-    # quitar símbolos ordinales (° y º)
-    no_ordinal = base_norm.replace('°', '').replace('º', '').strip()
+    aliases.add(' '.join(base_norm.split()))
+    no_ordinal = base_norm.replace('°', '').replace('º', '')
     aliases.add(' '.join(no_ordinal.split()))
-    # quitar 'o' luego de dígitos (ej: '3o basico b' -> '3 basico b')
-    import re
+    # quitar 'o' ordinal pegado al número (ej. "3o")
     aliases.add(re.sub(r"(\d)\s*o(\s)", r"\1\2", base_norm))
     aliases.add(re.sub(r"(\d)\s*o$", r"\1", base_norm))
-    # abreviación común: 'basico' -> 'bas'
+    # abreviaciones de nivel
     aliases.add(base_norm.replace(' basico ', ' bas '))
     aliases.add(no_ordinal.replace(' basico ', ' bas '))
-    # medio abreviado
     aliases.add(base_norm.replace(' medio ', ' med '))
     aliases.add(no_ordinal.replace(' medio ', ' med '))
-    # abreviación aún más corta: 'medio' -> ' m '
     aliases.add(base_norm.replace(' medio ', ' m '))
     aliases.add(no_ordinal.replace(' medio ', ' m '))
-    # formas con número a partir de palabras ordinales
+    # ordinales a número
     ordinal_map = {
         'primero': '1', 'primer': '1', '1ro': '1', '1ero': '1',
         'segundo': '2', '2do': '2', '2ndo': '2',
@@ -240,14 +236,32 @@ def generate_course_aliases(course_name: str) -> set:
     tokens = no_ordinal.split()
     tokens_num = [ordinal_map.get(t, t) for t in tokens]
     aliases.add(' '.join(tokens_num))
-    # si hay letra de paralelo al final, crear variantes sin la letra
+    # variantes según paralelo
     if tokens and len(tokens[-1]) == 1 and tokens[-1].isalpha():
         sin_letra = ' '.join(tokens[:-1])
-        aliases.add(sin_letra)
-        # con abreviaciones aplicadas también sin letra
         sin_letra_bas = sin_letra.replace(' basico ', ' bas ')
         sin_letra_med = sin_letra.replace(' medio ', ' med ')
-    aliases.add(' '.join(sin_letra_bas.split()))
+        aliases.add(' '.join(sin_letra.split()))
+        aliases.add(' '.join(sin_letra_bas.split()))
+        aliases.add(' '.join(sin_letra_med.split()))
+        compact = re.sub(r"(\d)\s+(med|m|bas)\s*", r"\1\2 ", ' '.join(tokens_num))
+        aliases.add(compact)
+        # variantes número + letra
+        num_token = None
+        for t in tokens_num:
+            if re.match(r"^\d+$", t):
+                num_token = t
+                break
+        letter = tokens[-1]
+        if num_token:
+            aliases.add(f"{num_token} {letter}")
+            aliases.add(f"{num_token}{letter}")
+            aliases.add(f"{num_token}° {letter}")
+            aliases.add(f"{num_token}°{letter}")
+            aliases.add((compact + letter).replace(' ', ''))
+    # compactar espacios
+    aliases = { ' '.join(a.split()) for a in aliases if a }
+    return aliases
 
 @main_bp.route('/api/risk_summary', methods=['GET'])
 def api_risk_summary():
@@ -497,29 +511,6 @@ def guardar_borrador_sugerencias_alumno(valor_codificado):
         current_app.logger.exception(f"Error al guardar borrador de sugerencias: {e}")
         flash('Error al guardar borrador.', 'danger')
         return redirect(url_for('main.riesgos'))
-        aliases.add(' '.join(sin_letra_med.split()))
-        aliases.add(' '.join(sin_letra.replace(' medio ', ' m ').split()))
-    # variantes sin espacios en número-etapa y etapa-letra (p.ej., '1m a' -> '1ma')
-    compact = re.sub(r"(\d)\s+(med|m|bas)\s*", r"\1\2 ", ' '.join(tokens_num))
-    aliases.add(compact)
-    if tokens and len(tokens[-1]) == 1 and tokens[-1].isalpha():
-        aliases.add((compact + tokens[-1]).replace(' ', ''))
-        # NUEVO: aceptar formas solo numero + letra (con y sin símbolo '°')
-        num_token = None
-        for t in tokens_num:
-            if re.match(r"^\d+$", t):
-                num_token = t
-                break
-        if num_token:
-            letter = tokens[-1]
-            aliases.add(f"{num_token} {letter}")       # '8 b'
-            aliases.add(f"{num_token}{letter}")        # '8b'
-            aliases.add(f"{num_token}° {letter}")     # '8° b'
-            aliases.add(f"{num_token}°{letter}")      # '8°b'
-    # compactar espacios finales
-    # compactar espacios
-    aliases = { ' '.join(a.split()) for a in aliases if a }
-    return aliases
 
 def find_course_in_prompt(course_names: list, prompt_text: str) -> str:
     pt_norm = normalize_text(prompt_text)
@@ -767,10 +758,19 @@ def upload_context_pdf():
 
 @main_bp.route('/chat_avanzado')
 def chat_avanzado():
-    # No changes to this function
-    if not session.get('current_file_path'): flash('Carga un archivo CSV.', 'warning'); return redirect(url_for('main.index'))
-    if 'advanced_chat_history' not in session: session['advanced_chat_history'] = []
-    return render_template('advanced_chat.html', page_title="Chat Avanzado", filename=session.get('uploaded_filename'), advanced_chat_history=session.get('advanced_chat_history', []))
+    try:
+        if not session.get('current_file_path'):
+            flash('Carga un archivo CSV.', 'warning')
+            return redirect(url_for('main.index'))
+        hist = session.get('advanced_chat_history')
+        if not isinstance(hist, list):
+            hist = []
+            session['advanced_chat_history'] = hist
+        return render_template('advanced_chat.html', page_title="Chat Avanzado", filename=session.get('uploaded_filename'), advanced_chat_history=hist)
+    except Exception as e:
+        current_app.logger.exception(f"Error inesperado en /chat_avanzado: {e}")
+        flash('Error inesperado al cargar Chat Avanzado. Intenta nuevamente.', 'danger')
+        return redirect(url_for('main.index'))
 
 @main_bp.route('/analyze', methods=['GET', 'POST']) 
 def analyze_page():
