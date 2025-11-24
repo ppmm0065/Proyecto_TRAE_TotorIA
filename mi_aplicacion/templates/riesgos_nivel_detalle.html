@@ -28,7 +28,7 @@
             <p class="text-xs text-slate-500 uppercase mb-2">Razones</p>
             <ul class="text-sm text-slate-700 mb-4">
               {% for r in s.reasons[:3] %}
-              <li>• {{ r }}</li>
+              <li>• {{ r|replace('_',' ') }}</li>
               {% endfor %}
             </ul>
           {% endif %}

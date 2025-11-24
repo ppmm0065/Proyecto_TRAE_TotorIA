@@ -2179,7 +2179,36 @@ def get_intervention_plans_for_entity(db_path, tipo_entidad, nombre_entidad, cur
     return plans
 
 def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, nombre_entidad):
-    # No changes to the query generation part
+    # Extracción de temas clave desde el Plan (reglas determinísticas)
+    def extract_support_topics_from_markdown(txt: str) -> list:
+        base = normalize_text(txt or '')
+        topics = []
+        def add(q):
+            if q and q not in topics:
+                topics.append(q)
+        # Académicos
+        if re.search(r'\bmatematic', base):
+            add('recursos de matemáticas: ejercicios y guías docentes')
+        if re.search(r'\blenguaj|\bescrit|\blecture|\bcomprension lectora', base):
+            add('lenguaje y lectoescritura: comprensión lectora y escritura')
+        if re.search(r'\bmusica', base):
+            add('recursos de música: teoría y práctica escolar')
+        if re.search(r'\bciencia|\bfisic|\bquimic|\bbiolog', base):
+            add('recursos de ciencias: física, química o biología')
+        if re.search(r'\bingles', base):
+            add('recursos de inglés: vocabulario y gramática escolar')
+        # Conducta y socioemocional
+        if re.search(r'\bconduct|\bcomport|\bdiscipl|\bconvivenc|\bbullying|\bsocializ', base):
+            add('apoyo conductual y habilidades socioemocionales en aula')
+        # Asistencia
+        if re.search(r'\basistenc|\binasistenc', base):
+            add('mejorar asistencia escolar: estrategias familia-escuela')
+        # Hábitos y estudio
+        if re.search(r'\bhabitos de estudio|\borganizacion|\bplanificacion', base):
+            add('hábitos de estudio y planificación académica')
+        return topics
+
+    topics_from_plan = extract_support_topics_from_markdown(plan_intervencion_markdown)
     print(f"DEBUG: Iniciando search_web_for_support_resources (SIMULACIÓN) para {tipo_entidad} {nombre_entidad}") 
     search_queries = []
     try:
@@ -2220,8 +2249,11 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
             if not search_queries:
                 return f"Error: No pude interpretar el plan de intervención para generar consultas de búsqueda (simulación)."
         
+        # Si la extracción determinística encontró temas, usarlos de forma prioritaria
+        if topics_from_plan:
+            search_queries = topics_from_plan
         if not search_queries:
-             return "Error: No se pudieron generar consultas de búsqueda a partir del plan de intervención (simulación)."
+            return "Error: No se pudieron generar consultas de búsqueda a partir del plan de intervención (simulación)."
 
     except Exception as e:
         traceback.print_exc()
@@ -2281,7 +2313,13 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
         print("DEBUG: HTML con recursos SIMULADOS (nuevo formato) generado por Gemini exitosamente.") 
         if not final_html:
             return "Error: El modelo no pudo generar sugerencias de recursos en este momento."
-        return final_html
+        try:
+            verified_html = verify_and_annotate_resources_html(final_html, current_app.config)
+            enriched_html = inject_local_resources(verified_html, current_app.config)
+            return enriched_html
+        except Exception as ve:
+            print(f"WARN: verificación de enlaces falló, devolviendo HTML original: {ve}")
+            return final_html
 
     except Exception as e:
         print(f"CRITICAL DEBUG: Error al SIMULAR y sugerir recursos con Gemini: {e}") 
@@ -3400,3 +3438,127 @@ def reset_database_tables(db_path: str, tables: list = None):
         return True
     except Exception:
         return False
+# --- VERIFICACIÓN DE ENLACES Y POST-FILTRADO ---
+import re
+import requests
+from urllib.parse import urlparse
+
+def _domain_allowed(url, cfg):
+    try:
+        parsed = urlparse(url)
+        host = (parsed.netloc or '').lower()
+        wl = set((cfg.get('RESOURCE_WHITELIST_DOMAINS') or []))
+        bl = set((cfg.get('RESOURCE_BLACKLIST_DOMAINS') or []))
+        if any(host.endswith(d.lower()) for d in bl):
+            return False
+        if wl:
+            return any(host.endswith(d.lower()) for d in wl)
+        return True
+    except Exception:
+        return False
+
+def _verify_url(url, cfg):
+    if not _domain_allowed(url, cfg):
+        return {'ok': False, 'reason': 'domain_not_allowed'}
+    timeout = float(cfg.get('RESOURCE_VERIFY_TIMEOUT_SEC', 4))
+    headers = {'User-Agent': 'TutorIA360/1.0 (+verificador)'}
+    try:
+        resp = requests.head(url, allow_redirects=True, timeout=timeout, headers=headers)
+        code = int(resp.status_code)
+        if code >= 400 or code < 200:
+            # Fall back to GET
+            resp = requests.get(url, allow_redirects=True, timeout=timeout, headers=headers, stream=True)
+            code = int(resp.status_code)
+        if 200 <= code < 300:
+            ctype = (resp.headers.get('Content-Type') or '').lower()
+            lang = (resp.headers.get('Content-Language') or '').lower()
+            prefer_lang = str(cfg.get('PREFER_RESOURCE_LANGUAGE', '') or '').lower()
+            lang_ok = True if not prefer_lang else (prefer_lang in lang) or ('html' in ctype)
+            return {'ok': True, 'final_url': resp.url, 'content_type': ctype, 'lang_ok': lang_ok}
+        return {'ok': False, 'reason': f'status_{code}'}
+    except requests.exceptions.RequestException as ex:
+        return {'ok': False, 'reason': str(ex)}
+
+def verify_and_annotate_resources_html(html: str, cfg: dict) -> str:
+    if not bool(cfg.get('STRICT_RESOURCE_VERIFICATION', False)):
+        return html
+    # Procesar por secciones (título + grid) para mantener estructura y orden
+    sections = []
+    idx = 0
+    pattern = re.compile(r'(<h3[^>]*class="resource-topic-title"[\s\S]*?</h3>\s*<div\s+class="resource-grid">)([\s\S]*?)(</div>)', re.I)
+    result = []
+    last_end = 0
+    for m in pattern.finditer(html):
+        start, inner, end = m.group(1), m.group(2), m.group(3)
+        # Añadir contenido previo sin tocar
+        result.append(html[last_end:m.start()])
+        # Filtrar tarjetas de esta sección
+        cards = re.findall(r'<div\s+class="resource-card"[\s\S]*?</div>', inner, flags=re.I)
+        verified_cards = []
+        for card in cards:
+            link = re.search(r'<a[^>]*href="([^"]+)"[^>]*>', card, flags=re.I|re.S)
+            if not link:
+                continue
+            url = link.group(1)
+            vr = _verify_url(url, cfg)
+            if not vr.get('ok'):
+                continue
+            badge = '<span class="resource-badge verified" style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:6px;margin-left:6px;font-size:11px;">Verificado</span>'
+            card2 = re.sub(r'(</h4>)', badge + r'\1', card, flags=re.I)
+            final_url = vr.get('final_url') or url
+            card2 = re.sub(r'href="[^"]+"', f'href="{final_url}"', card2, flags=re.I)
+            if not vr.get('lang_ok', True):
+                badge2 = '<span class="resource-badge lang" style="background:#e5e7eb;color:#374151;padding:2px 6px;border-radius:6px;margin-left:6px;font-size:11px;">Idioma no preferido</span>'
+                card2 = re.sub(r'(</h4>)', badge2 + r'\1', card2, flags=re.I)
+            verified_cards.append(card2)
+        if verified_cards:
+            result.append(start + ''.join(verified_cards) + end)
+        # Si no hay tarjetas válidas, eliminar la sección completa (deja espacio para locales)
+        last_end = m.end()
+    # Añadir el resto del HTML después de la última sección
+    result.append(html[last_end:])
+    out_html = ''.join(result)
+    # Si toda la salida queda vacía o sin grids, devolver vacío para que se inyecten locales
+    if not re.search(r'<div\s+class="resource-grid">', out_html, flags=re.I):
+        return ''
+    return out_html
+
+def inject_local_resources(html: str, cfg: dict) -> str:
+    baseline = cfg.get('RESOURCE_LOCAL_BASELINE') or []
+    if not baseline:
+        return html
+    cards = []
+    for item in baseline:
+        url_ok = None
+        for cand in (item.get('candidates') or []):
+            vr = _verify_url(cand, cfg)
+            if vr.get('ok'):
+                url_ok = vr.get('final_url') or cand
+                break
+        if not url_ok:
+            # Fallback: tomar primer candidato aunque la verificación falle
+            if (item.get('candidates') or []):
+                url_ok = item['candidates'][0]
+            else:
+                continue
+        title = item.get('title') or 'Recurso local'
+        desc = item.get('desc') or ''
+        card = (
+            f'<div class="resource-card">'
+            f'<h4 class="resource-title"><i class="fas fa-university mr-2"></i>{title}'
+            f'<span class="resource-badge verified" style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:6px;margin-left:6px;font-size:11px;">Verificado</span>'
+            f'</h4>'
+            f'<p class="resource-description">{desc}</p>'
+            f'<a href="{url_ok}" class="resource-button" target="_blank" rel="noopener noreferrer">Acceder al Recurso</a>'
+            f'</div>'
+        )
+        cards.append(card)
+    if not cards:
+        return html
+    section = (
+        '<h3 class="resource-topic-title">Recursos locales (Chile)</h3>'
+        '<div class="resource-grid">'
+        + ''.join(cards) +
+        '</div>'
+    )
+    return (html or '') + section

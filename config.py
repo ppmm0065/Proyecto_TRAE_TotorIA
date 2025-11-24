@@ -293,6 +293,79 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
     ENABLE_PREDICTIVE_MODEL_VIS = False
     MODEL_ARTIFACTS_SUBDIR = 'model_artifacts'
 
+    # Verificación de recursos de apoyo
+    STRICT_RESOURCE_VERIFICATION = True
+    RESOURCE_VERIFY_TIMEOUT_SEC = 4
+    RESOURCE_WHITELIST_DOMAINS = [
+        'khanacademy.org', 'youtube.com', 'youtu.be', 'edutopia.org',
+        'unesco.org', 'phet.colorado.edu', 'es.khanacademy.org',
+        'ineedapencil.com', 'ocw.mit.edu',
+        'mineduc.cl', 'gob.cl'
+    ]
+    RESOURCE_BLACKLIST_DOMAINS = [
+        'example.com', 'invalid.com'
+    ]
+    PREFER_RESOURCE_LANGUAGE = 'es'
+    ENABLE_PERPLEXITY_BACKFILL = False
+    RESOURCE_LOCAL_BASELINE = [
+        {
+            'title': 'Aprendo en Línea (Mineduc)',
+            'desc': 'Plataforma oficial con materiales y actividades por nivel y asignatura.',
+            'candidates': [
+                'https://aprendoenlinea.mineduc.cl/',
+                'https://www.mineduc.cl/aprendo-en-linea/'
+            ]
+        },
+        {
+            'title': 'Biblioteca Digital Escolar (Mineduc)',
+            'desc': 'Libros y recursos digitales gratuitos para estudiantes y docentes.',
+            'candidates': [
+                'https://bdescolar.mineduc.cl/',
+                'https://www.mineduc.cl/biblioteca-digital-escolar/'
+            ]
+        },
+        {
+            'title': 'Aprendo TV',
+            'desc': 'Capsulas audiovisuales educativas para reforzar contenidos escolares.',
+            'candidates': [
+                'https://aprendoenlinea.mineduc.cl/aprendotv',
+                'https://www.mineduc.cl/aprendo-tv/'
+            ]
+        },
+        {
+            'title': 'Aprendo FM',
+            'desc': 'Programas radiales educativos y material complementario.',
+            'candidates': [
+                'https://aprendoenlinea.mineduc.cl/aprendofm',
+                'https://www.mineduc.cl/aprendo-fm/'
+            ]
+        },
+        {
+            'title': 'Plan de Lectoescritura Digital',
+            'desc': 'Recursos y estrategias para fortalecer la lectoescritura.',
+            'candidates': [
+                'https://www.mineduc.cl/lectoescritura-digital/',
+                'https://lectoescritura.mineduc.cl/'
+            ]
+        },
+        {
+            'title': 'Chile Presente (Seguimiento Estudiantil)',
+            'desc': 'Iniciativa para monitorear la trayectoria y asistencia de estudiantes.',
+            'candidates': [
+                'https://www.mineduc.cl/chile-presente/',
+                'https://chilepresente.mineduc.cl/'
+            ]
+        },
+        {
+            'title': 'ChatSP (Asistente para Matemáticas)',
+            'desc': 'Asistente virtual para docentes de matemáticas.',
+            'candidates': [
+                'https://www.mineduc.cl/chatsp/',
+                'https://chatsp.mineduc.cl/'
+            ]
+        }
+    ]
+
 
 class DevelopmentConfig(Config):
     """Configuración para desarrollo."""

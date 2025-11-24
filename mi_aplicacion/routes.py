@@ -489,9 +489,10 @@ def guardar_borrador_sugerencias_alumno(valor_codificado):
             pass
         if new_id:
             flash('Borrador de Plan de Intervención guardado.', 'success')
+            return redirect(url_for('main.ver_sugerencias_alumno', valor_codificado=valor_codificado, saved='1'))
         else:
             flash('No se pudo guardar el borrador.', 'danger')
-        return redirect(url_for('main.ver_sugerencias_alumno', valor_codificado=valor_codificado))
+            return redirect(url_for('main.ver_sugerencias_alumno', valor_codificado=valor_codificado))
     except Exception as e:
         current_app.logger.exception(f"Error al guardar borrador de sugerencias: {e}")
         flash('Error al guardar borrador.', 'danger')

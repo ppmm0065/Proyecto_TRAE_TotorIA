@@ -166,11 +166,16 @@ if os.path.exists(ROSTER_FILE):
     random.shuffle(lista_promedios_base_copia)
     
     for i, est in enumerate(estudiantes):
-        # Actualizar datos que pueden variar
-        est["asistencia"] = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
-        est["profesor"] = f"{fake_first()} {fake_last()}"
-        est["nombre"] = f"{fake_first()} {fake_last()} {fake_last()}"
-        est["Familia"] = f"Apoderado: {fake_name()}"
+        # Preservar identidad del estudiante (nombre, apoderado y profesor) y su asistencia
+        # Solo se actualizarán notas, observaciones y entrevistas en los registros generados más abajo
+        if "asistencia" not in est or est["asistencia"] in (None, ""):
+            est["asistencia"] = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
+        if "profesor" not in est or not str(est["profesor"]).strip():
+            est["profesor"] = f"{fake_first()} {fake_last()}"
+        if "nombre" not in est or not str(est["nombre"]).strip():
+            est["nombre"] = f"{fake_first()} {fake_last()} {fake_last()}"
+        if "Familia" not in est or not str(est["Familia"]).strip():
+            est["Familia"] = f"Apoderado: {fake_name()}"
         hubo_actualizacion = True
         
         # FIX Entrevistas (de la vez anterior)
@@ -251,6 +256,16 @@ for est in estudiantes:
     texto_ent = str(est.get("Entrevistas", "")).lower()
     kw = ["separacion","violencia","maltrato","abuso","tdah","acoso","falta de respeto","preocupacion","diagnostico","protocolo"]
     es_familia_compleja = any(k in texto_ent for k in kw)
+    base_att = est.get("asistencia")
+    try:
+        base_att = float(base_att) if base_att is not None else None
+    except Exception:
+        base_att = None
+    if base_att is None:
+        base_att = round(random.uniform(RANGO_ASISTENCIA[0], RANGO_ASISTENCIA[1]), 2)
+    drift = random.uniform(-0.08, 0.08)
+    asistencia_run = max(RANGO_ASISTENCIA[0], min(RANGO_ASISTENCIA[1], round(base_att + drift, 2)))
+    est["asistencia"] = asistencia_run
     registros_estudiante = []
     for asignatura in est["asignaturas"]:
         nota_base = promedio_obj
@@ -309,7 +324,7 @@ for est in estudiantes:
             "Nota": r["Nota"],
             "Observacion de conducta": r["Observacion de conducta"],
             "materias_debiles": est["materias_debiles"],
-            "Asistencia": est["asistencia"],
+            "Asistencia": asistencia_run,
             "profesor": est["profesor"],
             "Familia": est["Familia"],
             "Entrevistas": est["Entrevistas"]
