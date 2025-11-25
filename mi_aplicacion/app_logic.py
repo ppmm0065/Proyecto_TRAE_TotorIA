@@ -1196,6 +1196,8 @@ def init_sqlite_db(db_path):
         column_names = [info[1] for info in table_info]
         if 'report_date' not in column_names:
             cursor.execute("ALTER TABLE follow_ups ADD COLUMN report_date DATE")
+        if 'owner_username' not in column_names:
+            cursor.execute("ALTER TABLE follow_ups ADD COLUMN owner_username TEXT")
 
         # --- INICIO: NUEVA TABLA PARA CONSUMO DE TOKENS ---
         # Se crea una tabla para llevar un registro histórico y acumulado del consumo por día y por modelo.
@@ -1297,16 +1299,16 @@ def guardar_consumo_diario(db_path, modelo, tokens_subida, tokens_bajada, costo_
         print(f"Error CRÍTICO al guardar el consumo de tokens en la BD: {e}")
         traceback.print_exc()
 
-def save_reporte_360_to_db(db_path, filename, tipo_entidad, nombre_entidad, reporte_360_markdown, prompt_reporte_360="Reporte 360 generado automáticamente"):
+def save_reporte_360_to_db(db_path, filename, tipo_entidad, nombre_entidad, reporte_360_markdown, prompt_reporte_360="Reporte 360 generado automáticamente", owner_username=None):
     # No changes
     try:
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO follow_ups 
-                (related_filename, related_prompt, follow_up_comment, follow_up_type, related_entity_type, related_entity_name, related_analysis)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (filename, prompt_reporte_360, reporte_360_markdown, 'reporte_360', tipo_entidad, nombre_entidad, None))
+                (related_filename, related_prompt, follow_up_comment, follow_up_type, related_entity_type, related_entity_name, related_analysis, owner_username)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (filename, prompt_reporte_360, reporte_360_markdown, 'reporte_360', tipo_entidad, nombre_entidad, None, owner_username))
             conn.commit()
             last_id = cursor.lastrowid
         print(f"Reporte 360 para {tipo_entidad} {nombre_entidad} (archivo: {filename}) guardado en la BD con ID: {last_id}.")
@@ -1316,7 +1318,7 @@ def save_reporte_360_to_db(db_path, filename, tipo_entidad, nombre_entidad, repo
         traceback.print_exc()
         return None
 
-def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_nombre, observacion_text, tipo_entidad, nombre_entidad, csv_filename):
+def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_nombre, observacion_text, tipo_entidad, nombre_entidad, csv_filename, owner_username=None):
     # No changes
     try:
         with sqlite3.connect(db_path) as conn:
@@ -1324,9 +1326,9 @@ def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_
             related_prompt_text = f"Observación de: {observador_nombre}"
             cursor.execute("""
                 INSERT INTO follow_ups
-                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (csv_filename, related_prompt_text, str(parent_reporte_360_id), observacion_text, 'observacion_reporte_360', tipo_entidad, nombre_entidad))
+                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name, owner_username)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (csv_filename, related_prompt_text, str(parent_reporte_360_id), observacion_text, 'observacion_reporte_360', tipo_entidad, nombre_entidad, owner_username))
             conn.commit()
         print(f"Observación para Reporte 360 ID {parent_reporte_360_id} (Entidad: {tipo_entidad} {nombre_entidad}, Archivo: {csv_filename}) guardada.")
         return True
@@ -1335,7 +1337,7 @@ def save_observation_for_reporte_360(db_path, parent_reporte_360_id, observador_
         traceback.print_exc()
         return False
 
-def save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, csv_filename):
+def save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, csv_filename, owner_username=None):
     """Guarda una observación independiente para una entidad (alumno/curso) y la deja disponible
     para el índice FAISS de seguimientos.
 
@@ -1359,10 +1361,10 @@ def save_observation_for_entity(db_path, entity_type, entity_name, observer_name
             cursor.execute(
                 """
                 INSERT INTO follow_ups
-                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name, owner_username)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (csv_filename, related_prompt_text, None, observation_text, 'observacion_entidad', entity_type, entity_name)
+                (csv_filename, related_prompt_text, None, observation_text, 'observacion_entidad', entity_type, entity_name, owner_username)
             )
             conn.commit()
             new_id = cursor.lastrowid
@@ -1455,13 +1457,16 @@ def save_data_snapshot_to_db(df, filename, db_path):
             
         return False, f"Error al guardar la instantánea: {e}"
 
-def load_follow_ups_as_documents(db_path): 
+def load_follow_ups_as_documents(db_path, owner_username=None): 
     follow_up_docs = []
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row 
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM follow_ups ORDER BY timestamp DESC") 
+            if owner_username:
+                cursor.execute("SELECT * FROM follow_ups WHERE owner_username = ? ORDER BY timestamp DESC", (owner_username,))
+            else:
+                cursor.execute("SELECT * FROM follow_ups ORDER BY timestamp DESC") 
             rows = cursor.fetchall() 
             
             if not rows:
@@ -1770,7 +1775,8 @@ def reload_followup_vector_store(app_config):
     path, db_path = app_config.get('FAISS_FOLLOWUP_INDEX_PATH'), app_config.get('DATABASE_FILE')
     if not path or not db_path: print("Error: Rutas de índice FAISS o DB no configuradas."); vector_store_followups = None; return False
     
-    docs = load_follow_ups_as_documents(db_path) 
+    owner = app_config.get('INDEX_OWNER_USERNAME')
+    docs = load_follow_ups_as_documents(db_path, owner) 
     if docs is None: 
         print("ERROR: Falló la carga de documentos de seguimiento desde la BD. El índice FAISS de seguimientos no se actualizará/creará.")
         vector_store_followups = None 
@@ -2134,7 +2140,7 @@ def generate_intervention_plan_with_gemini(reporte_360_markdown, tipo_entidad, n
     # Devolvemos tanto el HTML como el Markdown.
     return analysis_result['html_output'], analysis_result['raw_markdown']
 
-def save_intervention_plan_to_db(db_path, filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_markdown):
+def save_intervention_plan_to_db(db_path, filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_markdown, owner_username=None):
     """
     Guarda el plan de intervención en la BD y devuelve el ID de la nueva fila.
     """
@@ -2144,9 +2150,9 @@ def save_intervention_plan_to_db(db_path, filename, tipo_entidad, nombre_entidad
             prompt = f"Plan Intervención para {tipo_entidad.capitalize()}: {nombre_entidad}"
             cursor.execute("""
                 INSERT INTO follow_ups 
-                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (filename, prompt, reporte_360_base_markdown, plan_markdown, 'intervention_plan', tipo_entidad, nombre_entidad))
+                (related_filename, related_prompt, related_analysis, follow_up_comment, follow_up_type, related_entity_type, related_entity_name, owner_username) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (filename, prompt, reporte_360_base_markdown, plan_markdown, 'intervention_plan', tipo_entidad, nombre_entidad, owner_username))
             
             # LÍNEA CORREGIDA: Obtener y devolver el ID de la fila insertada
             last_id = cursor.lastrowid
@@ -3562,3 +3568,47 @@ def inject_local_resources(html: str, cfg: dict) -> str:
         '</div>'
     )
     return (html or '') + section
+
+# --- USUARIOS Y AUTENTICACIÓN (SQLite) ---
+def init_users_table(db_path: str):
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'user',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"WARN: init_users_table failed: {e}")
+
+def get_user_by_username(db_path: str, username: str):
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM users WHERE username = ?", (username,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        print(f"WARN: get_user_by_username failed: {e}")
+        return None
+
+def create_user(db_path: str, username: str, password_hash: str, role: str = 'user'):
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", (username, password_hash, role))
+            conn.commit()
+            return cur.lastrowid
+    except Exception as e:
+        print(f"WARN: create_user failed: {e}")
+        return None

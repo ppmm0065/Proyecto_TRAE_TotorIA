@@ -496,9 +496,15 @@ def guardar_borrador_sugerencias_alumno(valor_codificado):
         plan_html = ''.join(parts)
         csv_path = session.get('current_file_path') or ''
         csv_filename = os.path.basename(csv_path) if csv_path else ''
-        new_id = save_intervention_plan_to_db(current_app.config['DATABASE_FILE'], csv_filename, 'alumno', nombre, plan_html, 'Borrador generado desde sugerencias')
+        owner = (session.get('user') or {}).get('username')
+        new_id = save_intervention_plan_to_db(current_app.config['DATABASE_FILE'], csv_filename, 'alumno', nombre, plan_html, 'Borrador generado desde sugerencias', owner)
         try:
-            reload_followup_vector_store()
+            cfg = dict(current_app.config)
+            uname = owner or 'guest'
+            cfg['FAISS_FOLLOWUP_INDEX_PATH'] = os.path.join(current_app.instance_path, 'users', uname, 'faiss_index_followups')
+            cfg['INDEX_OWNER_USERNAME'] = owner
+            os.makedirs(cfg['FAISS_FOLLOWUP_INDEX_PATH'], exist_ok=True)
+            reload_followup_vector_store(cfg)
         except Exception:
             pass
         if new_id:
@@ -619,7 +625,11 @@ def upload_file():
         
         clear_session_file() 
 
-        save_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        user = session.get('user') or {}
+        uname = (user.get('username') or 'guest')
+        user_upload_dir = os.path.join(current_app.instance_path, 'users', uname, 'uploads')
+        os.makedirs(user_upload_dir, exist_ok=True)
+        save_path = os.path.join(user_upload_dir, filename)
         try:
             file.save(save_path)
             session['current_file_path'] = save_path
@@ -737,23 +747,37 @@ def upload_file():
 
 @main_bp.route('/upload_context_pdf', methods=['POST'])
 def upload_context_pdf():
-    # No changes to this function
-    if 'context_pdf_file' not in request.files: flash('No se encontró PDF.', 'warning'); return redirect(url_for('main.index'))
+    if 'context_pdf_file' not in request.files:
+        flash('No se encontró PDF.', 'warning')
+        return redirect(url_for('main.index'))
     file = request.files['context_pdf_file']
-    if file.filename == '': flash('No seleccionaste PDF.', 'warning'); return redirect(url_for('main.index'))
-    if file and file.filename.lower().endswith(('.pdf', '.txt')): 
+    if file.filename == '':
+        flash('No seleccionaste PDF.', 'warning')
+        return redirect(url_for('main.index'))
+    if file and file.filename.lower().endswith(('.pdf', '.txt')):
         filename = secure_filename(file.filename)
-        save_path = os.path.join(current_app.config['CONTEXT_DOCS_FOLDER'], filename)
+        user = session.get('user') or {}
+        uname = (user.get('username') or 'guest')
+        user_context_dir = os.path.join(current_app.instance_path, 'users', uname, 'context_docs')
+        os.makedirs(user_context_dir, exist_ok=True)
+        save_path = os.path.join(user_context_dir, filename)
         try:
-            file.save(save_path); flash(f'Documento de contexto "{filename}" subido.', 'success')
-            if reload_institutional_context_vector_store(current_app.config): 
-                flash('Índice de contexto institucional actualizado.', 'info')
-            else: 
-                flash('Documento subido, pero ocurrió un error al actualizar el índice de contexto. Revise los logs.', 'warning')
-        except Exception as e: 
+            file.save(save_path)
+            flash(f'Documento de contexto "{filename}" subido.', 'success')
+            # Recargar índice por usuario
+            user_cfg = dict(current_app.config)
+            user_cfg['CONTEXT_DOCS_FOLDER'] = user_context_dir
+            user_cfg['FAISS_INDEX_PATH'] = os.path.join(current_app.instance_path, 'users', uname, 'faiss_index_context')
+            os.makedirs(user_cfg['FAISS_INDEX_PATH'], exist_ok=True)
+            if reload_institutional_context_vector_store(user_cfg):
+                flash('Índice de contexto del usuario actualizado.', 'info')
+            else:
+                flash('Documento subido, pero ocurrió un error al actualizar el índice de contexto del usuario.', 'warning')
+        except Exception as e:
             flash(f'Error al procesar el documento de contexto: {e}', 'danger')
             traceback.print_exc()
-    else: flash('Error: Solo se permiten archivos PDF o TXT para el contexto.', 'danger')
+    else:
+        flash('Error: Solo se permiten archivos PDF o TXT para el contexto.', 'danger')
     return redirect(url_for('main.index'))
 
 @main_bp.route('/chat_avanzado')
@@ -868,6 +892,7 @@ def show_results():
     
     follow_ups_list = []
     current_filename = session.get('uploaded_filename')
+    owner = (session.get('user') or {}).get('username')
     if current_filename and current_filename != 'N/A': 
         try:
             with sqlite3.connect(current_app.config['DATABASE_FILE']) as conn:
@@ -1802,12 +1827,20 @@ def generar_reporte_360(tipo_entidad, valor_codificado):
     current_csv_filename = session.get('uploaded_filename', 'N/A')
     db_path = current_app.config['DATABASE_FILE']
     
-    reporte_360_id = save_reporte_360_to_db(db_path, current_csv_filename, tipo_entidad, nombre_entidad, reporte_markdown, prompt_reporte_360_base)
+    owner = (session.get('user') or {}).get('username')
+    reporte_360_id = save_reporte_360_to_db(db_path, current_csv_filename, tipo_entidad, nombre_entidad, reporte_markdown, prompt_reporte_360_base, owner)
     
     if reporte_360_id:
         flash(f'Reporte 360 para {nombre_entidad} guardado exitosamente (ID: {reporte_360_id}).', 'success')
         session['current_reporte_360_id'] = reporte_360_id 
-        if embedding_model_instance and reload_followup_vector_store(current_app.config):
+        if embedding_model_instance:
+            cfg = dict(current_app.config)
+            uname = owner or 'guest'
+            cfg['FAISS_FOLLOWUP_INDEX_PATH'] = os.path.join(current_app.instance_path, 'users', uname, 'faiss_index_followups')
+            cfg['INDEX_OWNER_USERNAME'] = owner
+            os.makedirs(cfg['FAISS_FOLLOWUP_INDEX_PATH'], exist_ok=True)
+            if reload_followup_vector_store(cfg):
+                flash('Índice de seguimientos (incluyendo Reportes 360) actualizado.', 'info')
             flash('Índice de seguimientos (incluyendo Reportes 360) actualizado.', 'info')
     else:
         flash(f'Reporte 360 generado, pero hubo un error al guardarlo en la base de datos.', 'warning')
@@ -2118,13 +2151,13 @@ def biblioteca_reportes():
     search_nombre = request.args.get('nombre_entidad')
     
     reportes = []
-    query_params = [current_filename]
+    query_params = [current_filename, owner]
     
     base_query = """
         SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
         FROM follow_ups
         WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan' OR follow_up_type = 'observacion_entidad')
-        AND related_filename = ?
+        AND related_filename = ? AND owner_username = ?
     """
     
     # Define un título por defecto
@@ -2144,25 +2177,18 @@ def biblioteca_reportes():
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(base_query, tuple(query_params))
-            # --- INICIO: MODIFICACIÓN ---
-            # Formatear el timestamp aquí, convirtiendo de UTC a Santiago
             rows = cursor.fetchall()
             reportes = []
             for row in rows:
                 reporte_dict = dict(row)
                 try:
-                    # 1. Parsear el string de la BD (asumiendo UTC)
                     naive_dt = datetime.datetime.strptime(reporte_dict['timestamp'], '%Y-%m-%d %H:%M:%S')
-                    # 2. Localizarlo como UTC
                     utc_dt = pytz.utc.localize(naive_dt)
-                    # 3. Convertir a zona horaria de Santiago
                     santiago_dt = utc_dt.astimezone(_get_tz())
-                    # 4. Formatear
                     reporte_dict['timestamp_formateado'] = santiago_dt.strftime('%d/%m/%Y %H:%M')
                 except (ValueError, TypeError):
                     reporte_dict['timestamp_formateado'] = reporte_dict.get('timestamp', 'Fecha no válida')
                 reportes.append(reporte_dict)
-            # --- FIN: MODIFICACIÓN ---
 
     except Exception as e:
         flash(f'Error al cargar la biblioteca de reportes: {e}', 'danger')
@@ -2202,13 +2228,19 @@ def api_add_observacion_entidad():
             return jsonify({"error": "Faltan datos para guardar la observación."}), 400
 
         db_path = current_app.config['DATABASE_FILE']
-        ok = save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, current_csv_filename)
+        owner = (session.get('user') or {}).get('username')
+        ok = save_observation_for_entity(db_path, entity_type, entity_name, observer_name, observation_text, current_csv_filename, owner)
         if not ok:
             return jsonify({"error": "Error interno al guardar la observación."}), 500
 
         updated_index = False
         if embedding_model_instance:
-            updated_index = reload_followup_vector_store(current_app.config)
+            cfg = dict(current_app.config)
+            uname = owner or 'guest'
+            cfg['FAISS_FOLLOWUP_INDEX_PATH'] = os.path.join(current_app.instance_path, 'users', uname, 'faiss_index_followups')
+            cfg['INDEX_OWNER_USERNAME'] = owner
+            os.makedirs(cfg['FAISS_FOLLOWUP_INDEX_PATH'], exist_ok=True)
+            updated_index = reload_followup_vector_store(cfg)
 
         msg = 'Observación guardada.'
         if embedding_model_instance and updated_index:
@@ -2310,7 +2342,9 @@ def ver_reporte_360(reporte_id):
     
 @main_bp.route('/api/get_context_docs')
 def api_get_context_docs():
-    context_folder = current_app.config['CONTEXT_DOCS_FOLDER']
+    user = session.get('user') or {}
+    uname = (user.get('username') or 'guest')
+    context_folder = os.path.join(current_app.instance_path, 'users', uname, 'context_docs')
     try:
         if os.path.exists(context_folder) and os.path.isdir(context_folder):
             docs = [f for f in os.listdir(context_folder) if f.lower().endswith(('.pdf', '.txt'))]
@@ -2330,17 +2364,23 @@ def api_delete_context_doc():
     if safe_filename != filename:
         return jsonify({"error": "Nombre de archivo no válido."}), 400
 
-    context_folder = current_app.config['CONTEXT_DOCS_FOLDER']
+    user = session.get('user') or {}
+    uname = (user.get('username') or 'guest')
+    context_folder = os.path.join(current_app.instance_path, 'users', uname, 'context_docs')
     file_path = os.path.join(context_folder, safe_filename)
 
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-            # Crucial: Re-indexar el RAG después de eliminar un archivo
-            if reload_institutional_context_vector_store(current_app.config):
-                return jsonify({"message": f"Archivo '{safe_filename}' eliminado y el índice de contexto ha sido actualizado."})
+            # Crucial: Re-indexar el contexto del usuario
+            user_cfg = dict(current_app.config)
+            user_cfg['CONTEXT_DOCS_FOLDER'] = context_folder
+            user_cfg['FAISS_INDEX_PATH'] = os.path.join(current_app.instance_path, 'users', uname, 'faiss_index_context')
+            os.makedirs(user_cfg['FAISS_INDEX_PATH'], exist_ok=True)
+            if reload_institutional_context_vector_store(user_cfg):
+                return jsonify({"message": f"Archivo '{safe_filename}' eliminado y el índice de contexto del usuario ha sido actualizado."})
             else:
-                return jsonify({"message": f"Archivo '{safe_filename}' eliminado, pero hubo un error al actualizar el índice de contexto."}), 500
+                return jsonify({"message": f"Archivo '{safe_filename}' eliminado, pero hubo un error al actualizar el índice de contexto del usuario."}), 500
         else:
             return jsonify({"error": "El archivo no fue encontrado."}), 404
     except Exception as e:
@@ -2469,3 +2509,43 @@ def api_reset_database():
     except Exception as e:
         current_app.logger.exception(f"Error en /api/reset_database: {e}")
         return jsonify({'error': 'server_error'}), 500
+from werkzeug.security import check_password_hash
+
+@main_bp.before_app_request
+def require_login():
+    if not bool(current_app.config.get('ENABLE_LOGIN', True)):
+        return
+    allowed = {'main.login', 'main.logout', 'static'}
+    if request.endpoint in allowed:
+        return
+    if session.get('user'):
+        return
+    return redirect(url_for('main.login'))
+
+@main_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        return render_template('login.html')
+    username = (request.form.get('username') or '').strip()
+    password = (request.form.get('password') or '')
+    if not username or not password:
+        flash('Ingresa usuario y contraseña.', 'warning')
+        return render_template('login.html')
+    if bool(current_app.config.get('DEMO_LOGIN_ENABLED', False)) and username == current_app.config.get('DEMO_LOGIN_USERNAME', 'demo') and password == 'demo':
+        session['user'] = {'username': username, 'role': 'demo'}
+        session.modified = True
+        return redirect(url_for('main.index'))
+    db_path = current_app.config['DATABASE_FILE']
+    from .app_logic import get_user_by_username
+    user = get_user_by_username(db_path, username)
+    if not user or not check_password_hash(user.get('password_hash') or '', password):
+        flash('Credenciales inválidas.', 'danger')
+        return render_template('login.html')
+    session['user'] = {'id': int(user.get('id')), 'username': user.get('username'), 'role': user.get('role')}
+    session.modified = True
+    return redirect(url_for('main.index'))
+
+@main_bp.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('main.login'))

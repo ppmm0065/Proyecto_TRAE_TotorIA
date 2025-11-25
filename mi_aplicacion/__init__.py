@@ -76,6 +76,22 @@ def create_app(config_name='dev'):
     print(f"CONTEXT_DOCS_FOLDER configurado en: {app.config['CONTEXT_DOCS_FOLDER']}")
     print(f"MODEL_ARTIFACTS_DIR configurado en: {app.config['MODEL_ARTIFACTS_DIR']}")
 
+    try:
+        from .app_logic import init_users_table
+        init_users_table(app.config['DATABASE_FILE'])
+    except Exception as e:
+        print(f"WARN: No se pudo inicializar tabla de usuarios: {e}")
+
+    try:
+        if app.config.get('DEMO_LOGIN_ENABLED', False):
+            from .app_logic import get_user_by_username, create_user
+            from werkzeug.security import generate_password_hash
+            for uname in ['demo', 'demo1', 'demo2', 'demo3', 'demo4']:
+                if not get_user_by_username(app.config['DATABASE_FILE'], uname):
+                    create_user(app.config['DATABASE_FILE'], uname, generate_password_hash('demo'), 'docente')
+    except Exception as e:
+        print(f"WARN: No se pudieron crear usuarios demo: {e}")
+
     # Configurar logging según configuración
     level_name = str(app.config.get('LOG_LEVEL', 'INFO')).upper()
     level = getattr(logging, level_name, logging.INFO)

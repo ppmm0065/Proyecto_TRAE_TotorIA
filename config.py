@@ -366,6 +366,11 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
         }
     ]
 
+    # Autenticación básica
+    ENABLE_LOGIN = True
+    DEMO_LOGIN_ENABLED = True
+    DEMO_LOGIN_USERNAME = 'demo'
+
 
 class DevelopmentConfig(Config):
     """Configuración para desarrollo."""
