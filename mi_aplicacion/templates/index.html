@@ -34,7 +34,7 @@
 
         {# --- INICIO: MODIFICACIÓN KPIs --- #}
         {# Cambiado 'bg-white' a 'bg-slate-50', añadido 'border' y mantenido 'shadow-sm' #}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 gap-6 mb-8">
             <div class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-blue-500">
                 <div class="flex justify-between items-start">
                     <div>
@@ -68,6 +68,21 @@
                     </div>
                 </div>
             </div>
+            {% set h = risk_summary.totals.alto if risk_summary else 0 %}
+            {% set m = risk_summary.totals.medio if risk_summary else 0 %}
+            {% set b = risk_summary.totals.bajo if risk_summary else 0 %}
+            {% set t = (h + m + b) %}
+            <a href="{{ url_for('main.riesgos') }}" class="bg-slate-50 p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-rose-500 block">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-sm font-medium text-slate-500 uppercase">Estudiantes en Riesgo</h3>
+                        <p class="text-3xl font-bold text-rose-600 mt-2">{{ h }}</p>
+                    </div>
+                    <div class="bg-rose-100 text-rose-600 rounded-lg p-2">
+                        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                    </div>
+                </div>
+            </a>
         </div>
         {# --- FIN: MODIFICACIÓN KPIs --- #}
 
@@ -179,7 +194,7 @@
                             <th class="px-4 py-3 text-center font-medium text-slate-600 uppercase tracking-wider">Asistencia Prom.</th>
                             {% endif %}
                             <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Menor Prom.</th>
-                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Mayor Prom.</th>
+                            <th class="px-4 py-3 text-left font-medium text-slate-600 uppercase tracking-wider">Curso Menor Asistencia</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-slate-200"> {# Dejamos el fondo de la tabla 'bg-white' para legibilidad #}
@@ -195,7 +210,11 @@
                                 {{ data.curso_menor_promedio.nombre | fix_course_characters }} ({{ data.curso_menor_promedio.promedio | nota_un_decimal }})
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap text-slate-700">
-                                {{ data.curso_mayor_promedio.nombre | fix_course_characters }} ({{ data.curso_mayor_promedio.promedio | nota_un_decimal }})
+                                {% set att = data.curso_menor_asistencia if data.curso_menor_asistencia is defined else {'nombre':'N/A','asistencia':'N/A','asistencia_num': None} %}
+                                {% set low = att and att.asistencia_num is defined and att.asistencia_num and att.asistencia_num < 0.85 %}
+                                <span class="px-2 py-1 rounded {{ 'bg-red-100 text-red-700 font-semibold' if low else 'bg-slate-100 text-slate-700' }}">
+                                    {{ att.nombre | fix_course_characters }} ({{ att.asistencia }})
+                                </span>
                             </td>
                         </tr>
                         {% else %}
@@ -348,7 +367,7 @@
                             datasets: [{
                                 label: 'Nº de Estudiantes',
                                 data: {{ session.file_summary.average_distribution_data.counts | tojson | safe }},
-                                backgroundColor: ['#ef4444', '#f97316', '#22c55e', '#22c55e', '#22c55e'], // Rojo, Naranja, Verde
+                                backgroundColor: ['#ef4444', '#f97316', '#22c55e', '#22c55e'], // Rojo, Naranja, Verde
                                 borderRadius: 4
                             }]
                         },

@@ -1268,6 +1268,22 @@ def init_sqlite_db(db_path):
             )
         ''')
 
+        # Tabla de acciones de intervención asociadas a un plan
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS intervention_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id INTEGER NOT NULL,
+                owner_username TEXT,
+                action_title TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                applied_date DATE,
+                responsable TEXT,
+                compliance_pct REAL DEFAULT 0.0,
+                notes TEXT,
+                UNIQUE(plan_id, action_title, owner_username)
+            )
+        ''')
+
         conn.commit()
     except Exception as e:
         print(f"Error CRÍTICO al inicializar/actualizar SQLite: {e}"); traceback.print_exc()
@@ -1902,6 +1918,21 @@ def get_level_kpis(df):
     df_completo['Nivel'] = df_completo[curso_col].astype(str).apply(_extract_level_from_course)
 
     agg = {}
+    min_attendance_by_level = {}
+    if asistencia_col in df.columns and not df[asistencia_col].isnull().all():
+        df_att = df.drop_duplicates(subset=[nombre_col]).copy()
+        df_att['Nivel'] = df_att[curso_col].astype(str).apply(_extract_level_from_course)
+        df_att = df_att.dropna(subset=[asistencia_col])
+        try:
+            grp = df_att.groupby(['Nivel', curso_col])[asistencia_col].mean().dropna()
+            for nivel_name, sub in grp.groupby(level=0):
+                sub_series = sub.droplevel(0)
+                if not sub_series.empty:
+                    c_name = sub_series.idxmin()
+                    val = float(sub_series.min())
+                    min_attendance_by_level[nivel_name] = {"nombre": c_name, "asistencia": f"{val:.1%}", "asistencia_num": val}
+        except Exception:
+            min_attendance_by_level = {}
     for niv, grp_alumnos in df_alumnos.groupby('Nivel'):
         # Usar el grupo de alumnos para contar el total
         total_alumnos_nivel = len(grp_alumnos)
@@ -1917,13 +1948,29 @@ def get_level_kpis(df):
         prom_cursos_en_nivel = grp_completo_nivel.groupby(curso_col)[nota_col].mean().dropna()
         c_menor = {"nombre": prom_cursos_en_nivel.idxmin(), "promedio": prom_cursos_en_nivel.min()} if not prom_cursos_en_nivel.empty else {"nombre": "N/A", "promedio": np.nan}
         c_mayor = {"nombre": prom_cursos_en_nivel.idxmax(), "promedio": prom_cursos_en_nivel.max()} if not prom_cursos_en_nivel.empty else {"nombre": "N/A", "promedio": np.nan}
+        if asistencia_col in grp_alumnos.columns and not grp_alumnos[asistencia_col].isnull().all():
+            asist_por_curso = (
+                grp_alumnos[[curso_col, asistencia_col]]
+                .dropna(subset=[asistencia_col])
+                .groupby(curso_col)[asistencia_col]
+                .mean()
+            )
+            if not asist_por_curso.empty:
+                curso_min_asist = asist_por_curso.idxmin()
+                val_min_asist = float(asist_por_curso.min())
+                c_menor_asist = {"nombre": curso_min_asist, "asistencia": f"{val_min_asist:.1%}", "asistencia_num": val_min_asist}
+            else:
+                c_menor_asist = {"nombre": "N/A", "asistencia": "N/A", "asistencia_num": np.nan}
+        else:
+            c_menor_asist = {"nombre": "N/A", "asistencia": "N/A", "asistencia_num": np.nan}
         
         agg[niv] = {
             "total_alumnos": total_alumnos_nivel,
             "promedio_general_notas": round(promedio_general_nivel, 2) if pd.notna(promedio_general_nivel) else "N/A",
             "asistencia_promedio": f"{asist_prom:.1%}" if pd.notna(asist_prom) else "N/A",
             "curso_menor_promedio": {"nombre": c_menor["nombre"], "promedio": round(c_menor["promedio"], 2) if pd.notna(c_menor["promedio"]) else "N/A"},
-            "curso_mayor_promedio": {"nombre": c_mayor["nombre"], "promedio": round(c_mayor["promedio"], 2) if pd.notna(c_mayor["promedio"]) else "N/A"}
+            "curso_mayor_promedio": {"nombre": c_mayor["nombre"], "promedio": round(c_mayor["promedio"], 2) if pd.notna(c_mayor["promedio"]) else "N/A"},
+            "curso_menor_asistencia": min_attendance_by_level.get(niv, {"nombre": "N/A", "asistencia": "N/A", "asistencia_num": np.nan})
         }
     return agg
 
@@ -2988,6 +3035,67 @@ def get_student_attendance_evolution_value(db_path: str, student_name: str):
     except Exception:
         return None
 
+def get_intervention_compliance_for_entity(db_path: str, entity_name: str, owner_username: str = None):
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            # Obtener planes para la entidad y, opcionalmente, por propietario
+            if owner_username:
+                cur.execute(
+                    """
+                    SELECT id FROM follow_ups
+                    WHERE follow_up_type = 'intervention_plan' AND related_entity_type = 'alumno' AND related_entity_name = ?
+                    AND owner_username = ?
+                    ORDER BY timestamp DESC
+                    """,
+                    (entity_name, owner_username)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id FROM follow_ups
+                    WHERE follow_up_type = 'intervention_plan' AND related_entity_type = 'alumno' AND related_entity_name = ?
+                    ORDER BY timestamp DESC
+                    """,
+                    (entity_name,)
+                )
+            plan_rows = cur.fetchall()
+            if not plan_rows:
+                return {'plans': 0, 'total_actions': 0, 'applied_actions': 0, 'avg_compliance_pct': 0.0}
+            total_actions = 0
+            applied_actions = 0
+            compliance_values = []
+            for r in plan_rows:
+                pid = int(r['id'])
+                cur.execute(
+                    "SELECT status, compliance_pct FROM intervention_actions WHERE plan_id = ? AND (owner_username = ? OR owner_username IS NULL)",
+                    (pid, owner_username)
+                )
+                arows = cur.fetchall()
+                total_actions += len(arows)
+                for ar in arows:
+                    if (ar['status'] or '').strip() == 'applied':
+                        applied_actions += 1
+                    try:
+                        compliance_values.append(float(ar['compliance_pct'] or 0.0))
+                    except Exception:
+                        pass
+            avg_comp = (sum(compliance_values)/len(compliance_values)) if compliance_values else 0.0
+            return {'plans': len(plan_rows), 'total_actions': total_actions, 'applied_actions': applied_actions, 'avg_compliance_pct': avg_comp}
+    except Exception:
+        return {'plans': 0, 'total_actions': 0, 'applied_actions': 0, 'avg_compliance_pct': 0.0}
+
+def get_effectiveness_conditioned(db_path: str, entity_name: str, days: int = None, only_applied: bool = True, owner_username: str = None):
+    # Para MVP: usamos deltas globales (first vs last) y condicionamos por existencia de acciones "applied" cuando only_applied=True
+    comp = get_intervention_compliance_for_entity(db_path, entity_name, owner_username)
+    if only_applied and comp.get('applied_actions', 0) == 0:
+        return {'grade_delta': None, 'attendance_delta': None, 'compliance': comp}
+    gd = get_student_grade_evolution_value(db_path, entity_name)
+    ad = get_student_attendance_evolution_value(db_path, entity_name)
+    return {'grade_delta': gd, 'attendance_delta': ad, 'compliance': comp}
+
 def save_intervention_outcome(db_path: str, follow_up_id: int, related_entity_type: str, related_entity_name: str, course_name: str, outcome_date: str, compliance_pct: float, impact_grade_delta: float, impact_attendance_delta: float, notes: str):
     try:
         with sqlite3.connect(db_path) as conn:
@@ -3612,3 +3720,83 @@ def create_user(db_path: str, username: str, password_hash: str, role: str = 'us
     except Exception as e:
         print(f"WARN: create_user failed: {e}")
         return None
+def extract_actions_from_plan_html(plan_html: str) -> list:
+    import re
+    if not plan_html:
+        return []
+    titles = []
+    for m in re.finditer(r"<li[^>]*>\s*<strong>([^<]+)</strong>", plan_html, flags=re.I):
+        t = m.group(1).strip()
+        if t and t not in titles:
+            titles.append(t)
+    # Fallback: tomar items simples si no hay strong
+    if not titles:
+        for m in re.finditer(r"<li[^>]*>([^<]+)</li>", plan_html, flags=re.I):
+            t = m.group(1).strip()
+            if len(t) > 5 and t not in titles:
+                titles.append(t)
+    return titles
+
+def ensure_actions_initialized(db_path: str, plan_id: int, owner_username: str, plan_html: str):
+    try:
+        titles = extract_actions_from_plan_html(plan_html)
+        if not titles:
+            return 0
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            inserted = 0
+            for t in titles:
+                try:
+                    cur.execute(
+                        """
+                        INSERT OR IGNORE INTO intervention_actions (plan_id, owner_username, action_title)
+                        VALUES (?, ?, ?)
+                        """,
+                        (int(plan_id), owner_username, t)
+                    )
+                    inserted += (cur.rowcount or 0)
+                except Exception:
+                    pass
+            conn.commit()
+        return inserted
+    except Exception:
+        return 0
+
+def get_actions_for_plan(db_path: str, plan_id: int, owner_username: str) -> list:
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM intervention_actions WHERE plan_id = ? AND (owner_username = ? OR owner_username IS NULL) ORDER BY id ASC",
+                (int(plan_id), owner_username)
+            )
+            rows = cur.fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+def upsert_action_status(db_path: str, plan_id: int, owner_username: str, action_title: str, status: str, applied_date: str, responsable: str, compliance_pct: float, notes: str) -> bool:
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO intervention_actions (plan_id, owner_username, action_title, status, applied_date, responsable, compliance_pct, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(plan_id, action_title, owner_username) DO UPDATE SET
+                    status = excluded.status,
+                    applied_date = excluded.applied_date,
+                    responsable = excluded.responsable,
+                    compliance_pct = excluded.compliance_pct,
+                    notes = excluded.notes
+                """,
+                (int(plan_id), owner_username, action_title, status, applied_date, responsable, float(compliance_pct or 0.0), notes)
+            )
+            conn.commit()
+            return True
+    except Exception:
+        return False

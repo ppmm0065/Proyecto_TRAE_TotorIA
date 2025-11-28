@@ -194,6 +194,152 @@
             <div class="bg-white p-6 rounded-lg shadow-xl border border-slate-200 ia-plan-content max-w-none">
                 {{ plan_html|safe }} 
             </div>
+            <style>
+              .action-control { margin-top: 0.75rem; padding: 0.5rem 0.75rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:0.5rem; display:flex; align-items:center; justify-content:space-between; }
+              .action-control .left { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
+              .action-control label { font-size: 0.875rem; color:#334155; }
+              .action-control .status { font-weight:600; color:#475569; margin-right:0.25rem; }
+              .action-control .center { flex:1; text-align:center; }
+              .action-control .saved { color:#16a34a; font-weight:600; display:none; }
+              .action-control .saving { color:#4f46e5; font-weight:600; display:none; }
+            </style>
+            <script>
+              (function(){
+                {% set plan_id_js = plan_ref if plan_ref != 'current' else session.get('current_intervention_plan_id') %}
+                const planId = {{ (plan_id_js or 0)|int }};
+                const actions = {{ (actions or [])|tojson }};
+                const statusMap = {};
+                actions.forEach(a => { statusMap[a.action_title] = (a.status || 'pending'); });
+                if (!window.CSS) window.CSS = {};
+                if (!CSS.escape) CSS.escape = function(s){ return (s||'').replace(/[^a-zA-Z0-9_-]/g, '_'); };
+                function slugify(s){ return (s||'').toLowerCase().trim().replace(/\s+/g,'_').replace(/[^a-z0-9_-]/g,'_'); }
+                function isLabelStrong(el, label){
+                  const t = (el.textContent||'').trim().toLowerCase();
+                  label = label.toLowerCase();
+                  return t === label || t === label.replace('á','a');
+                }
+                function findTitleStrong(li){
+                  const strongs = li.querySelectorAll('strong');
+                  for (const s of strongs){
+                    const t = (s.textContent||'').trim().toLowerCase();
+                    if (t !== 'acción:' && t !== 'accion:' && t !== 'fundamentación:' && t !== 'fundamentacion:') return s;
+                  }
+                  return null;
+                }
+                document.querySelectorAll('.ia-plan-content li').forEach((li, idx) => {
+                  const strongs = li.querySelectorAll('strong');
+                  let hasActionLabel = false;
+                  strongs.forEach(st => { if (isLabelStrong(st,'Acción:')) hasActionLabel = true; });
+                  if (!hasActionLabel) return;
+                  // Eliminar restos de textos previos como "Estado: ..." y mensajes de guardado dentro del bloque
+                  Array.from(li.childNodes).forEach(n => {
+                    try {
+                      const txt = (n.textContent||'').trim().toLowerCase();
+                      if (n.nodeType === Node.TEXT_NODE && (txt.startsWith('estado:') || txt.includes('guardando') || txt.includes('guardado'))) n.textContent = '';
+                    } catch(e){}
+                  });
+                  li.querySelectorAll('p,div').forEach(el => {
+                    const t = (el.textContent||'').trim();
+                    if (!el.querySelector('input')) {
+                      el.innerHTML = el.innerHTML
+                        .replace(/Estado:[^<]*/gi,'')
+                        .replace(/\bAplicado\b/gi,'')
+                        .replace(/\bNo\s+Aplicado\b/gi,'')
+                        .replace(/\bEn\s+Proceso\b/gi,'')
+                        .replace(/Guardando…?/gi,'')
+                        .replace(/Guardado/gi,'')
+                        .replace(/\s{2,}/g,' ');
+                    }
+                  });
+                  const titleEl = findTitleStrong(li);
+                  let title = titleEl ? (titleEl.textContent||'').trim() : '';
+                  if (!title) title = 'accion_'+idx;
+                  const ctrl = document.createElement('div');
+                  ctrl.className = 'action-control';
+                  ctrl.innerHTML = `
+                    <div class="left">
+                      <span class="status">Estado:</span>
+                      <label><input type="radio" name="status_${slugify(title)}" value="applied"> Aplicado</label>
+                      <label><input type="radio" name="status_${slugify(title)}" value="not_applied"> No Aplicado</label>
+                      <label><input type="radio" name="status_${slugify(title)}" value="in_progress"> En Proceso</label>
+                    </div>
+                    <div class="center"><span class="saving">Guardando…</span><span class="saved">Guardado</span></div>
+                  `;
+                  // Insertar el control al final del li de la acción
+                  li.appendChild(ctrl);
+                  const current = statusMap[title] || 'pending';
+                  const radios = ctrl.querySelectorAll(`input[name="status_${slugify(title)}"]`);
+                  radios.forEach(r => { if (r.value === current) r.checked = true; });
+                  radios.forEach(r => {
+                    r.addEventListener('change', async () => {
+                      const saving = ctrl.querySelector('.center .saving');
+                      const saved = ctrl.querySelector('.center .saved');
+                      if (saving) saving.style.display = 'inline';
+                      if (saved) saved.style.display = 'none';
+                      const payload = { plan_id: planId, action_title: title, status: r.value, applied_date: '', responsable: '', compliance_pct: 0, notes: '' };
+                      try {
+                        const res = await fetch('{{ url_for('main.api_intervention_action_status') }}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        const j = await res.json();
+                        if (res.ok) {
+                          if (saved) {
+                            saved.style.display = 'inline';
+                            setTimeout(() => { saved.style.display = 'none'; }, 2500);
+                          }
+                        } else {
+                          alert('Error al guardar estado: ' + (j.error||'desconocido'));
+                        }
+                      } catch(e){
+                        alert('Error de red al guardar estado');
+                      } finally {
+                        if (saving) saving.style.display = 'none';
+                      }
+                    });
+                  });
+                });
+              })();
+            </script>
+            {% if actions %}
+            <div class="mt-6 bg-white p-6 rounded-lg shadow-xl border border-slate-200">
+              <h2 class="text-xl font-bold text-slate-800 mb-3">Control de ejecución de intervenciones</h2>
+              <table class="min-w-full text-sm">
+                <thead>
+                  <tr class="text-slate-600">
+                    <th class="text-left px-2 py-2">Acción</th>
+                    <th class="text-left px-2 py-2">Estado</th>
+                    <th class="text-left px-2 py-2">Fecha</th>
+                    <th class="text-left px-2 py-2">Responsable</th>
+                    <th class="text-left px-2 py-2">Cumplimiento (%)</th>
+                    <th class="text-left px-2 py-2">Notas</th>
+                    <th class="text-left px-2 py-2">Guardar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for a in actions %}
+                  <tr class="border-t">
+                    <td class="px-2 py-2 align-top">{{ a.action_title }}</td>
+                    <td class="px-2 py-2">
+                      <select class="border rounded px-2 py-1" data-field="status">
+                        {% set st = a.status or 'pending' %}
+                        <option value="pending" {% if st=='pending' %}selected{% endif %}>Pendiente</option>
+                        <option value="applied" {% if st=='applied' %}selected{% endif %}>Aplicada</option>
+                        <option value="in_progress" {% if st=='in_progress' %}selected{% endif %}>En progreso</option>
+                        <option value="not_applied" {% if st=='not_applied' %}selected{% endif %}>No aplicada</option>
+                        <option value="not_applicable" {% if st=='not_applicable' %}selected{% endif %}>No aplicable</option>
+                      </select>
+                    </td>
+                    <td class="px-2 py-2"><input type="date" class="border rounded px-2 py-1" data-field="applied_date" value="{{ a.applied_date or '' }}"></td>
+                    <td class="px-2 py-2"><input type="text" class="border rounded px-2 py-1" data-field="responsable" value="{{ a.responsable or '' }}"></td>
+                    <td class="px-2 py-2"><input type="number" step="0.1" min="0" max="100" class="border rounded px-2 py-1 w-24" data-field="compliance_pct" value="{{ a.compliance_pct or 0 }}"></td>
+                    <td class="px-2 py-2"><input type="text" class="border rounded px-2 py-1 w-64" data-field="notes" value="{{ a.notes or '' }}"></td>
+                    <td class="px-2 py-2">
+                      <button class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-1 rounded" data-action-title="{{ a.action_title }}">Guardar</button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
         {% endif %}
     {% else %}
         <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4 mb-6" role="alert">
@@ -308,9 +454,69 @@
                     container.style.display = 'inline';
                     afterTitleNodes.forEach(n => flattenNode(n, container));
                     afterTitleNodes.forEach(n => n.remove());
+                    (function stripState(node){
+                        if (!node) return;
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            const t = node.textContent || '';
+                            const idx = t.toLowerCase().indexOf('estado:');
+                            if (idx >= 0) node.textContent = t.slice(0, idx).replace(/\s+$/,' ');
+                            return;
+                        }
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            Array.from(node.childNodes).forEach(stripState);
+                        }
+                    })(container);
+                    const tc = container.textContent || '';
+                    container.textContent = tc
+                      .replace(/\bestado:.*$/gi,'')
+                      .replace(/\baplicado\b/gi,'')
+                      .replace(/\bno\s+aplicado\b/gi,'')
+                      .replace(/\ben\s+proceso\b/gi,'')
+                      .replace(/\bguardando…?\b/gi,'')
+                      .replace(/\bguardado\b/gi,'')
+                      .replace(/\sNo[\s\u00A0]*(?:…|\.{3})\s*$/i,'')
+                      .replace(/\sNo[\s\u00A0]*$/i,'')
+                      .replace(/\s{2,}/g,' ')
+                      .trim();
                     li.appendChild(container);
                 }
             });
         })();
+    </script>
+    <script>
+      (function(){
+        {% set plan_id_js2 = plan_ref if plan_ref != 'current' else session.get('current_intervention_plan_id') %}
+        const planId = {{ (plan_id_js2 or 0)|int }};
+        document.querySelectorAll('button[data-action-title]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const tr = btn.closest('tr');
+            const payload = {
+              plan_id: planId,
+              action_title: btn.getAttribute('data-action-title'),
+              status: tr.querySelector('[data-field="status"]').value,
+              applied_date: tr.querySelector('[data-field="applied_date"]').value,
+              responsable: tr.querySelector('[data-field="responsable"]').value,
+              compliance_pct: tr.querySelector('[data-field="compliance_pct"]').value,
+              notes: tr.querySelector('[data-field="notes"]').value
+            };
+            try {
+              const res = await fetch('{{ url_for('main.api_intervention_action_status') }}', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+              });
+              const j = await res.json();
+              if (res.ok) {
+                const prev = btn.getAttribute('data-prev-text') || 'Guardar';
+                btn.setAttribute('data-prev-text', prev);
+                btn.textContent = 'Guardado';
+                btn.classList.remove('bg-indigo-600');
+                btn.classList.add('bg-emerald-600');
+                setTimeout(() => { btn.textContent = prev; btn.classList.remove('bg-emerald-600'); btn.classList.add('bg-indigo-600'); }, 2500);
+              } else {
+                alert('Error: ' + (j.error || 'no se pudo guardar'));
+              }
+            } catch(e){ alert('Error de red al guardar'); }
+          })
+        });
+      })();
     </script>
 {% endblock scripts %}

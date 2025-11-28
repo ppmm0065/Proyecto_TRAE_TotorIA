@@ -63,6 +63,7 @@ from .app_logic import (
     train_predictive_risk_model,
     get_student_grade_evolution_value,
     get_student_attendance_evolution_value,
+    get_effectiveness_conditioned,
     reset_database_tables,
     get_lowest_grade_student_for_subject
 )
@@ -575,18 +576,49 @@ def index():
     df_global = get_dataframe_from_session_file()
     student_names = []
     course_names = []
+    risk_summary = None
     if df_global is not None and not df_global.empty:
         if current_app.config['NOMBRE_COL'] in df_global.columns:
             student_names = sorted(df_global[current_app.config['NOMBRE_COL']].astype(str).unique().tolist())
         if current_app.config['CURSO_COL'] in df_global.columns:
             course_names = sorted(df_global[current_app.config['CURSO_COL']].astype(str).unique().tolist())
+        try:
+            fs = build_feature_store_from_csv(df_global)
+            risk_summary = build_risk_summary(fs)
+        except Exception:
+            risk_summary = None
+        try:
+            from .app_logic import get_level_kpis
+            level_k = get_level_kpis(df_global)
+            if isinstance(session.get('file_summary'), dict):
+                session['file_summary']['level_kpis'] = level_k
+                session.modified = True
+        except Exception:
+            pass
+        try:
+            nombre_col = current_app.config['NOMBRE_COL']
+            promedio_col = current_app.config['PROMEDIO_COL']
+            df_alumnos = df_global.drop_duplicates(subset=[nombre_col]).copy()
+            if promedio_col in df_alumnos.columns and not df_alumnos[promedio_col].isnull().all():
+                proms = pd.to_numeric(df_alumnos[promedio_col], errors='coerce').dropna()
+                bins = [1.0, 3.9, 4.9, 5.9, 7.0]
+                labels = ['1–3,9', '4–4,9', '5–5,9', '6–7']
+                cat = pd.cut(proms, bins=bins, labels=labels, include_lowest=True, right=True)
+                vc = cat.value_counts().reindex(labels, fill_value=0)
+                avg_dist = {'labels': labels, 'counts': vc.astype(int).tolist()}
+                if isinstance(session.get('file_summary'), dict):
+                    session['file_summary']['average_distribution_data'] = avg_dist
+                    session.modified = True
+        except Exception:
+            pass
 
     # LÍNEA AÑADIDA: Pasa el objeto 'datetime' a la plantilla
     return render_template('index.html',
                            page_title="Dashboard Principal - TutorIA360",
                            student_names_for_select=student_names,
                            course_names_for_select=course_names,
-                           now=datetime.datetime.now())
+                           now=datetime.datetime.now(),
+                           risk_summary=risk_summary)
 
 @main_bp.route('/clear_session_file')
 def clear_session_file():
@@ -658,19 +690,19 @@ def upload_file():
             total_cursos = df_alumnos[curso_col].nunique()
             promedio_general_calculado = df[nota_col].mean()
             
-            # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN CUALITATIVA DE PROMEDIOS ---
+            # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN NUMÉRICA DE PROMEDIOS ---
             average_distribution_data = {'labels': [], 'counts': []}
             if not df_alumnos[promedio_col].isnull().all():
-                promedios_validos = df_alumnos[promedio_col]
-                qual_labels = ['Muy Malo', 'Malo', 'Regular', 'Bueno', 'Muy bueno']
                 try:
-                    qual_series = promedios_validos.apply(grade_to_qualitative).dropna()
-                    value_counts = qual_series.value_counts()
-                    # Ordenar según las etiquetas deseadas
-                    average_distribution_data['labels'] = qual_labels
-                    average_distribution_data['counts'] = [int(value_counts.get(lbl, 0)) for lbl in qual_labels]
+                    proms = pd.to_numeric(df_alumnos[promedio_col], errors='coerce').dropna()
+                    bins = [1.0, 3.9, 4.9, 5.9, 7.0]
+                    labels = ['1–3,9', '4–4,9', '5–5,9', '6–7']
+                    cat = pd.cut(proms, bins=bins, labels=labels, include_lowest=True, right=True)
+                    vc = cat.value_counts().reindex(labels, fill_value=0)
+                    average_distribution_data['labels'] = labels
+                    average_distribution_data['counts'] = vc.astype(int).tolist()
                 except Exception as e:
-                    print(f"Error en distribución cualitativa de promedios: {e}")
+                    print(f"Error en distribución numérica de promedios: {e}")
 
             # --- CÁLCULO PARA GRÁFICO DE DISTRIBUCIÓN DE ASISTENCIA ---
             attendance_distribution_data = {'labels': [], 'counts': []}
@@ -1961,7 +1993,15 @@ def generar_plan_intervencion(tipo_entidad, valor_codificado):
     db_path = current_app.config['DATABASE_FILE']
     current_csv_filename = session.get('uploaded_filename', 'N/A')
     
-    last_plan_id = save_intervention_plan_to_db(db_path, current_csv_filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_md)
+    owner = (session.get('user') or {}).get('username')
+    last_plan_id = save_intervention_plan_to_db(db_path, current_csv_filename, tipo_entidad, nombre_entidad, plan_markdown, reporte_360_base_md, owner)
+    try:
+        session['current_intervention_plan_id'] = int(last_plan_id)
+        session['current_intervention_plan_for_entity_type'] = tipo_entidad
+        session['current_intervention_plan_for_entity_name'] = nombre_entidad
+        session.modified = True
+    except Exception:
+        pass
 
     if last_plan_id:
         flash('Plan de Intervención generado y guardado exitosamente.', 'success')
@@ -1995,25 +2035,27 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
         flash('Nombre de entidad no válido.', 'danger')
         return redirect(url_for('main.index'))
 
+    db_path = current_app.config['DATABASE_FILE']
     plan_html_content = None
     plan_date = "Fecha no disponible"
     plan_title = f"Plan de Intervención para {tipo_entidad.capitalize()}: {nombre_entidad}"
     # Obtenemos el filename de la sesión solo como un fallback
     current_filename = session.get('uploaded_filename', 'N/A')
 
+    plan_id_to_load = None
     if plan_ref == 'current': 
         if (session.get('current_intervention_plan_html') and
             session.get('current_intervention_plan_for_entity_type') == tipo_entidad and
             session.get('current_intervention_plan_for_entity_name') == nombre_entidad):
             plan_html_content = session['current_intervention_plan_html']
             plan_date = session.get('current_intervention_plan_date', plan_date)
+            plan_id_to_load = session.get('current_intervention_plan_id')
         else:
             flash('No hay un plan de intervención actual en sesión para esta entidad.', 'warning')
             return redirect(url_for('main.detalle_entidad', tipo_entidad=tipo_entidad, valor_codificado=quote(nombre_entidad)))
     else: 
         try:
             plan_id_to_load = int(plan_ref)
-            db_path = current_app.config['DATABASE_FILE']
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
@@ -2059,6 +2101,16 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
             traceback.print_exc()
             return redirect(url_for('main.biblioteca_reportes'))
 
+    owner = (session.get('user') or {}).get('username')
+    try:
+        from .app_logic import ensure_actions_initialized, get_actions_for_plan
+        if plan_id_to_load:
+            ensure_actions_initialized(db_path, int(plan_id_to_load), owner, plan_html_content or '')
+            actions = get_actions_for_plan(db_path, int(plan_id_to_load), owner)
+        else:
+            actions = []
+    except Exception:
+        actions = []
     return render_template('visualizar_plan_intervencion.html',
                            page_title=plan_title,
                            tipo_entidad=tipo_entidad,
@@ -2066,7 +2118,8 @@ def visualizar_plan_intervencion(tipo_entidad, valor_codificado, plan_ref):
                            plan_html=plan_html_content,
                            fecha_emision_plan=plan_date,
                            plan_ref=plan_ref, 
-                           filename=current_filename)
+                           filename=current_filename,
+                           actions=actions)
 
 # --- RUTA PARA RECURSOS DE APOYO ---
 @main_bp.route('/generar_recursos_apoyo/<tipo_entidad>/<path:valor_codificado>/<plan_ref>')
@@ -2145,20 +2198,25 @@ def biblioteca_reportes():
 
     db_path = current_app.config['DATABASE_FILE']
     current_filename = session.get('uploaded_filename')
+    owner = (session.get('user') or {}).get('username')
     
     # --- NUEVA LÓGICA DE FILTRADO ---
     search_tipo = request.args.get('tipo_entidad')
     search_nombre = request.args.get('nombre_entidad')
     
     reportes = []
-    query_params = [current_filename, owner]
+    query_params = [current_filename]
     
     base_query = """
         SELECT id, timestamp, report_date, follow_up_type, related_entity_type, related_entity_name
         FROM follow_ups
         WHERE (follow_up_type = 'reporte_360' OR follow_up_type = 'intervention_plan' OR follow_up_type = 'observacion_entidad')
-        AND related_filename = ? AND owner_username = ?
+        AND related_filename = ?
     """
+
+    if owner:
+        base_query += " AND (owner_username = ? OR owner_username IS NULL)"
+        query_params.append(owner)
     
     # Define un título por defecto
     page_title = "Biblioteca de Reportes (Todos)"
@@ -2435,22 +2493,58 @@ def api_consumo_totales():
 def efectividad_intervenciones():
     try:
         db_path = current_app.config['DATABASE_FILE']
+        owner = (session.get('user') or {}).get('username')
+        only_applied = (request.args.get('only_applied') == 'true')
+        days = request.args.get('days')
+        dw = int(days) if days is not None and str(days).isdigit() else None
+        entity_type = request.args.get('tipo_entidad')
+        entity_name = request.args.get('nombre_entidad')
+
+        alumnos = []
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
-            cur.execute("SELECT DISTINCT related_entity_name FROM follow_ups WHERE follow_up_type = 'intervention_plan' AND related_entity_type = 'alumno'")
+            base_q = "SELECT DISTINCT related_entity_name FROM follow_ups WHERE follow_up_type='intervention_plan' AND related_entity_type='alumno'"
+            params = []
+            if owner:
+                base_q += " AND (owner_username = ? OR owner_username IS NULL)"
+                params.append(owner)
+            cur.execute(base_q, tuple(params))
             rows = cur.fetchall()
             alumnos = [r['related_entity_name'] for r in rows]
         data = []
-        for nombre in alumnos:
-            grade_delta = get_student_grade_evolution_value(db_path, nombre)
-            att_delta = get_student_attendance_evolution_value(db_path, nombre)
-            data.append({'student': nombre, 'grade_delta': grade_delta, 'attendance_delta': att_delta})
-        return render_template('efectividad_intervenciones.html', data=data)
+        targets = alumnos if not entity_name else [entity_name]
+        for nombre in targets:
+            eff = get_effectiveness_conditioned(db_path, nombre, dw, only_applied, owner)
+            data.append({'student': nombre, 'grade_delta': eff.get('grade_delta'), 'attendance_delta': eff.get('attendance_delta'), 'compliance': eff.get('compliance')})
+        return render_template('efectividad_intervenciones.html', data=data, only_applied=only_applied, days=dw, tipo_entidad=entity_type, nombre_entidad=entity_name)
     except Exception as e:
         current_app.logger.exception(f"Error en /efectividad: {e}")
         flash('Error al construir la vista de efectividad.', 'danger')
         return redirect(url_for('main.index'))
+
+@main_bp.route('/api/intervention_action_status', methods=['POST'])
+def api_intervention_action_status():
+    try:
+        data = request.json or {}
+        plan_id = int(data.get('plan_id'))
+        action_title = (data.get('action_title') or '').strip()
+        status = (data.get('status') or 'pending').strip()
+        applied_date = (data.get('applied_date') or '').strip()
+        responsable = (data.get('responsable') or '').strip()
+        compliance_pct = float(data.get('compliance_pct') or 0.0)
+        notes = (data.get('notes') or '').strip()
+        owner = (session.get('user') or {}).get('username')
+        if not plan_id or not action_title:
+            return jsonify({'error': 'bad_request'}), 400
+        from .app_logic import upsert_action_status
+        ok = upsert_action_status(current_app.config['DATABASE_FILE'], plan_id, owner, action_title, status, applied_date, responsable, compliance_pct, notes)
+        if not ok:
+            return jsonify({'error': 'save_failed'}), 500
+        return jsonify({'message': 'saved'}), 200
+    except Exception as e:
+        current_app.logger.exception(f"Error en /api/intervention_action_status: {e}")
+        return jsonify({'error': 'server_error'}), 500
 
 @main_bp.route('/api/train_risk_model', methods=['POST'])
 def api_train_risk_model():
