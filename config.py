@@ -55,9 +55,16 @@ class Config:
 
     # --- INICIO: CONFIGURACIONES PARA PROMPTS DE GEMINI (ACTUALIZADAS) ---
 
-    GEMINI_SYSTEM_ROLE_PROMPT = """Eres TutorIA360, un asistente experto en pedagogía y análisis de datos educativos. Tu misión es proporcionar estrategias y consejos ACCIONABLES y PERSONALIZADOS para mejorar el desempeño académico y conductual de los estudiantes.
+    GEMINI_SYSTEM_ROLE_PROMPT = """Eres un consultor internacional de reconocimiento mundial, experto en pedagogía y análisis de datos educativos. Tu misión es proporcionar estrategias y consejos ACCIONABLES y PERSONALIZADOS para mejorar el desempeño académico y conductual de los estudiantes.
 
-**CRÍTICO: Fundamenta todas tus recomendaciones en teorías pedagógicas reconocidas y estudios de investigación educativa validados a nivel mundial, tales como los modelos educativos de paises como Finlandia, Canada, Singapur, Inglaterra y Corea del Sur. Cuando sea pertinente, menciona brevemente el concepto o teoría que respalda tu sugerencia (ej., "basado en los principios del aprendizaje constructivista...", "considerando la teoría de las inteligencias múltiples de Gardner...", "aplicando técnicas de refuerzo positivo Skinneriano...").**
+**CRÍTICO: Fundamenta todas tus recomendaciones en teorías pedagógicas reconocidas, basadas en la ciencia pedagógica, (por ejemplo: teoría de la carga cognitiva y de estrategias para la captura de atención y almacenamiento de información en la memoria de largo plazo)
+y estudios de investigación educativa validados a nivel mundial, tales como los modelos educativos de paises como Finlandia, Canada, Singapur, Inglaterra y Corea del Sur. Cuando sea pertinente, menciona brevemente el concepto o teoría
+que respalda tu sugerencia (ej., "basado en los principios del aprendizaje...", "considerando la teoría de...", "aplicando técnicas de...").**
+
+Debes poner atención especialmente a las siguientes consideraciones:
+* **Dificultades Específicas del Estudiante**: Asegúrate de adaptar tus recomendaciones a las necesidades individuales del estudiante, considerando su nivel de habilidad, desafíos educativos y patrones de comportamiento.
+* **Contexto Institucional**: Utiliza la información proporcionada por la institución para informar tus recomendaciones, considerando sus políticas, recursos y prácticas educativas.
+* **Historial de Seguimiento**: Presta especial atención al historial de seguimiento del estudiante, incluyendo reportes 360 previos, observaciones registradas por usuarios y planes de intervención anteriores.
 
 **MODO DE RESPUESTA:**
 * **Para Preguntas Directas (Chat):** Responde de manera concisa y directa a la pregunta del usuario. Sintetiza la información relevante del contexto (CSV, institucional, historial de reportes y registro de observaciones) para informar tu respuesta sin replicar documentos completos. El objetivo es una conversación fluida y útil que informe al usuario de los avances o cambios en el desarrollo del estudiante.
@@ -73,39 +80,38 @@ Utiliza la siguiente información para formular tus respuestas, integrándola de
 
 Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empoderar a los docentes y profesionales de la educación con herramientas prácticas."""
 
-    # NUEVO: Prompt específico para el Reporte 360
+    # NUEVO: Prompt específico para el Reporte 360 (alineado al GEMINI_SYSTEM_ROLE_PROMPT)
     PROMPT_REPORTE_360 = """
     Genera un "Reporte de Aprendizaje y Conducta" para el {tipo_entidad} '{nombre_entidad}'.
-    El reporte debe ser conciso, estructurado y fácil de leer, con un máximo de 250 palabras en total.
+    El reporte debe ser conciso, estructurado y fácil de leer (máx. 250 palabras) y debe estar explícitamente fundamentado en ciencia pedagógica.
+
     Utiliza estrictamente el siguiente formato Markdown:
 
     ### Fortalezas Destacables
-    * [Lista de 2-4 fortalezas clave observadas en los datos, cada una en un ítem]
-    * ...
+    * [Lista de 2-4 fortalezas clave observadas en los datos]
 
     ### Desafíos Significativos
-    * **Académicos:** [Menciona 1-3 desafíos académicos. Si la columna 'materias_debiles' existe y tiene contenido, úsalo para informar esta sección.]
-    * **Conductuales:** [Menciona 1-3 desafíos conductuales basados en las observaciones.]
+    * **Académicos:** [1-3 desafíos; si 'materias_debiles' existe y tiene contenido, incorpóralo]
+    * **Conductuales:** [1-3 desafíos a partir de observaciones y registros]
 
     ### Sugerencia Clave
-    * [Basado en los desafíos, proporciona una recomendación principal o un próximo paso sugerido, fundamentado en un modelo pedagógico reconocido.]
+    * [Un próximo paso accionable y personalizado, fundamentado en teorías pedagógicas reconocidas (p. ej., carga cognitiva, estrategias de codificación en memoria de largo plazo, aprendizaje colaborativo), citando brevemente el concepto]
 
     ### Fundamentación y Referencias Institucionales
-    * Cuando cites modelos pedagógicos, verifica y utiliza el contexto institucional recuperado (RAG) para fundamentar la sugerencia.
-    * Evalúa explícitamente si los documentos institucionales mencionan modelos de Finlandia, Canadá, Corea del Sur, Singapur y del Reino Unido ("modelo británico"/"Inglaterra"). Si existen menciones, cítalas brevemente indicando el nombre del archivo (p. ej., MODELO_EDUCATIVO_BRITANICO.pdf) y un extracto corto.
-    * Si NO se encuentran menciones al "modelo británico" en los documentos institucionales cargados, indícalo explícitamente con un aviso breve: "No se hallaron referencias al modelo británico en los documentos institucionales proporcionados para esta consulta".
+    * Verifica y utiliza el contexto institucional recuperado por RAG para respaldar la sugerencia.
+    * Si los documentos institucionales mencionan enfoques de Finlandia, Canadá, Singapur, Inglaterra o Corea del Sur, cítalos brevemente indicando nombre de archivo y un extracto.
+    * Solo si es pertinente al caso específico (por ejemplo, tareas excesivas, materiales poco estructurados, distracciones), incluye una cita breve de la Teoría de la Carga Cognitiva indicando el tipo y la acción de mitigación. Ejemplos: "Reducir carga extrínseca con guías paso a paso", "Gestionar carga intrínseca segmentando contenidos", "Optimizar carga germana con práctica graduada".
 
-    Sigue el rol y las directrices generales definidas en GEMINI_SYSTEM_ROLE_PROMPT.
+    Alinea el reporte con el rol y las directrices de GEMINI_SYSTEM_ROLE_PROMPT.
     """
 
-    # NUEVO: Prompt específico para el Plan de Intervención
+    # NUEVO: Prompt específico para el Plan de Intervención (alineado al GEMINI_SYSTEM_ROLE_PROMPT)
     PROMPT_PLAN_INTERVENCION = """
     Basado en el siguiente Reporte 360 para el {tipo_entidad} '{nombre_entidad}':
     ```markdown
     {reporte_360_markdown}
     ```
-    Genera un "Plan de Intervención" breve y concreto. El plan debe estar claramente estructurado en Markdown, utilizando encabezados y listas.
-    Sigue estrictamente este formato:
+    Genera un "Plan de Intervención" breve y concreto, claramente estructurado en Markdown (encabezados y listas), y fundamentado en ciencia pedagógica.
 
     ### Objetivos Claros
     1.  **[Título del Objetivo 1]:** [Descripción breve del objetivo]
@@ -114,12 +120,16 @@ Sé claro, conciso y empático. Evita la jerga excesiva. Tu objetivo es empodera
 
     ### Acciones y Estrategias Sugeridas
     * **[Nombre de la Estrategia 1]:**
-        * **Acción:** [Paso concreto y práctico a implementar].
-        * **Fundamentación:** [Menciona explícitamente el modelo o principio pedagógico que sustenta la acción (ej., teoría sociocultural de Vygotsky; enfoque constructivista de Finlandia; aprendizaje colaborativo inspirado en Singapur; "modelo británico"). Cita un fragmento RELEVANTE recuperado por RAG de los documentos institucionales (incluye el nombre del archivo, p. ej., MODELO_EDUCATIVO_BRITANICO.pdf, y un breve extracto). Si el RAG no devuelve referencias pertinentes, indícalo brevemente al cierre de la fundamentación: "No se encontraron referencias institucionales pertinentes para esta acción".]
+        * **Acción:** [Paso concreto y práctico a implementar]
+        * **Fundamentación:** [Referencia explícita a principios/teorías pedagógicas (p. ej., carga cognitiva, codificación en memoria de largo plazo, aprendizaje colaborativo), y cita RELEVANTE de documentos institucionales recuperados por RAG (incluye nombre de archivo y breve extracto)]
+        * **Cita de Carga Cognitiva (solo si aplica al caso):** [Menciona el tipo (intrínseca, extrínseca, germana) y la acción concreta de mitigación. Ejemplos: "Reducir carga extrínseca eliminando elementos irrelevantes de la guía", "Segmentar contenido para gestionar carga intrínseca", "Diseñar andamiaje para potenciar carga germana"]
     * **[Nombre de la Estrategia 2]:**
-        * **Acción:** [Paso concreto y práctico a implementar].
-        * **Fundamentación:** [Menciona explícitamente el modelo o principio pedagógico y cita el documento institucional recuperado por RAG.]
+        * **Acción:** [Paso concreto y práctico a implementar]
+        * **Fundamentación:** [Referencia explícita a teoría/modelo y respaldo institucional por RAG]
+        * **Cita de Carga Cognitiva (solo si aplica al caso):** [Tipo y acción concreta, como en el ejemplo anterior]
     * ...
+
+    Alinea el plan con el rol y las directrices de GEMINI_SYSTEM_ROLE_PROMPT.
     """
     GEMINI_FORMATTING_INSTRUCTIONS = """**SOLO CUANDO SE SOLICITE UN ANÁLISIS ESTRUCTURADO (NO PARA PREGUNTAS DIRECTAS EN CHAT)**, formatea tu respuesta utilizando Markdown de la siguiente manera:
 
@@ -258,7 +268,8 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
         'historical_quantitative': 0.07,
         'csv_or_base_context': 0.07,
         # Añadido para controlar el presupuesto de señales del feature store dentro del total
-        'feature_store_signals': 0.05
+        'feature_store_signals': 0.05,
+        'external_refs': 0.05
     }
     # Presupuestos máximos específicos para RAG (aplicados además del total)
     RAG_INST_MAX_CHARS = 15000
@@ -300,7 +311,7 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
         'khanacademy.org', 'youtube.com', 'youtu.be', 'edutopia.org',
         'unesco.org', 'phet.colorado.edu', 'es.khanacademy.org',
         'ineedapencil.com', 'ocw.mit.edu',
-        'mineduc.cl', 'gob.cl'
+        'mineduc.cl', 'gob.cl', 'oecd.org', 'wikipedia.org'
     ]
     RESOURCE_BLACKLIST_DOMAINS = [
         'example.com', 'invalid.com'
@@ -365,6 +376,20 @@ Utiliza encabezados (##, ###), listas con viñetas (-) o numeradas (1.), y **neg
             ]
         }
     ]
+
+    ENABLE_EXTERNAL_PEDAGOGY_REFERENCES = True
+    EXTERNAL_PEDAGOGY_KEY_TERMS = [
+        'modelo finlandes', 'modelo finlandés', 'finlandia',
+        'singapur', 'modelo singapur',
+        'inglaterra', 'modelo britanico', 'modelo británico',
+        'canada', 'canadá',
+        'corea del sur', 'corea',
+        'carga cognitiva', 'memoria largo plazo'
+    ]
+    EXTERNAL_PREFERRED_LANGUAGE = 'es'
+    EXTERNAL_DOMAIN_PATH_PREFIXES = {
+        'oecd.org': ['/education', '/education/', '/education-and-skills', '/education/skills']
+    }
 
     # Autenticación básica
     ENABLE_LOGIN = True

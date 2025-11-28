@@ -24,6 +24,8 @@ from .utils import normalize_text, compile_any_keyword_pattern, get_tz, grade_to
 import datetime
 import pytz
 from pytz import timezone
+import requests
+from urllib.parse import urlparse, quote
 
 # Definimos la zona horaria aquí también para usarla en las consultas de BD
 # Zona horaria centralizada vía configuración
@@ -946,6 +948,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     hist_quant_budget = budget_for('historical_quantitative', 0.10)
     csv_budget = budget_for('csv_or_base_context', 0.10)
     fs_signals_budget = budget_for('feature_store_signals', 0.08)
+    external_refs_budget = budget_for('external_refs', 0.05)
 
     # --- Construct final prompt for Gemini ---
     try:
@@ -1005,6 +1008,12 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
                     (_trim_to_char_budget(retrieved_context_followup, rag_fu_budget) if enable_budget else retrieved_context_followup),
                     "\n```\n---",
                 ])
+                if bool(current_app.config.get('ENABLE_EXTERNAL_PEDAGOGY_REFERENCES', False)):
+                    ext_block = build_external_pedagogy_references(final_user_instruction)
+                    if ext_block:
+                        prompt_parts.append("Referencias Externas Verificadas (modelos educativos y principios):\n``\n")
+                        prompt_parts.append(_trim_to_char_budget(ext_block, external_refs_budget) if enable_budget else ext_block)
+                        prompt_parts.append("\n``\n---")
                 # Directriz obligatoria: si hay entidad especificada (alumno o curso), integra la Biblioteca de Seguimiento.
                 # Enumera Observaciones, Reportes 360 y Planes de intervención, y explica la incidencia global para la entidad.
                 # Si no hay registros, indícalo. Evita omitir Observaciones relevantes.
@@ -1173,6 +1182,78 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         print(f"Excepción en analyze_data_with_gemini: {e}")
         traceback.print_exc()
         return create_error_response(f"Comunicación con Gemini o procesamiento de su respuesta: {e}")
+
+def _safe_http_get(url, timeout, whitelist, blacklist, prefix_map=None):
+    try:
+        p = urlparse(url)
+        host = (p.netloc or '').lower()
+        if not any(host.endswith(d) for d in (whitelist or [])): return None
+        if any(host.endswith(d) for d in (blacklist or [])): return None
+        if prefix_map:
+            for dom, prefixes in prefix_map.items():
+                if host.endswith(dom):
+                    path = (p.path or '').lower()
+                    if not any(path.startswith(pr.lower()) for pr in prefixes):
+                        return None
+        r = requests.get(url, timeout=timeout)
+        if r.status_code != 200: return None
+        txt = r.text or ''
+        return txt[:20000]
+    except Exception:
+        return None
+
+def _wiki_summary(title, lang, timeout, whitelist, blacklist, prefix_map=None):
+    base = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+    return _safe_http_get(base, timeout, whitelist, blacklist, prefix_map)
+
+def build_external_pedagogy_references(user_text):
+    try:
+        cfg = current_app.config
+        wl = cfg.get('RESOURCE_WHITELIST_DOMAINS', [])
+        bl = cfg.get('RESOURCE_BLACKLIST_DOMAINS', [])
+        timeout = int(cfg.get('RESOURCE_VERIFY_TIMEOUT_SEC', 4))
+        lang = cfg.get('EXTERNAL_PREFERRED_LANGUAGE', 'es')
+        pfx = cfg.get('EXTERNAL_DOMAIN_PATH_PREFIXES', {})
+        terms = cfg.get('EXTERNAL_PEDAGOGY_KEY_TERMS', []) or []
+        norm = normalize_text(user_text or '')
+        matched = [t for t in terms if t in norm]
+        if not matched:
+            matched = terms[:5]
+        refs = []
+        titles = {
+            'finlandia': 'Educación_en_Finlandia',
+            'singapur': 'Educación_en_Singapur',
+            'inglaterra': 'Educación_en_Inglaterra',
+            'canada': 'Educación_en_Canadá',
+            'canadá': 'Educación_en_Canadá',
+            'corea del sur': 'Educación_en_Corea_del_Sur',
+            'corea': 'Educación_en_Corea_del_Sur',
+            'carga cognitiva': 'Teoría_de_la_carga_cognitiva'
+        }
+        for t in matched:
+            key = normalize_text(t)
+            title = titles.get(key)
+            if not title: continue
+            s = _wiki_summary(title, lang, timeout, wl, bl, pfx)
+            if s:
+                refs.append(f"* {t} — {lang}.wikipedia.org")
+        base_local = cfg.get('RESOURCE_LOCAL_BASELINE') or []
+        for item in base_local[:2]:
+            cands = item.get('candidates') or []
+            for u in cands:
+                txt = _safe_http_get(u, timeout, wl, bl, pfx)
+                if txt:
+                    refs.append(f"* {item.get('title','Recurso')} — {u}")
+                    break
+        oecd = ['https://www.oecd.org/education/', 'https://www.oecd.org/education/skills/']
+        for u in oecd:
+            txt = _safe_http_get(u, timeout, wl, bl, pfx)
+            if txt:
+                refs.append(f"* OECD — {u}")
+                break
+        return "\n".join(refs) if refs else ""
+    except Exception:
+        return ""
 
 def init_sqlite_db(db_path):
     try:
