@@ -30,6 +30,10 @@ def create_app(config_name='dev'):
         import config 
         app.config.from_object(config.config_by_name[config_name])
         print(f"Configuración '{config_name}' cargada desde config.py.")
+        try:
+            print(f"GEMINI_API_KEY presente: {bool(app.config.get('GEMINI_API_KEY'))}")
+        except Exception:
+            pass
     except (ImportError, KeyError) as e:
         print(f"Error cargando config.py ('{e}'). Usando defaults.")
         app.config.from_mapping(

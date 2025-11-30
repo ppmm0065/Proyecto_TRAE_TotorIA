@@ -139,6 +139,14 @@
             }
         }
 
+        const overlay = document.createElement('div');
+        overlay.id = 'global-loading-overlay';
+        overlay.className = 'fixed inset-0 bg-black/20 flex items-center justify-center z-50 hidden';
+        overlay.innerHTML = '<div class="bg-white rounded-lg shadow-xl p-4 flex items-center gap-3"><i class="fas fa-spinner fa-spin text-2xl text-indigo-600"></i><span class="text-slate-700">Procesando consulta...</span></div>';
+        document.body.appendChild(overlay);
+        function showOverlay(){ overlay.classList.remove('hidden'); }
+        function hideOverlay(){ overlay.classList.add('hidden'); }
+
         let currentAdvancedChatHistoryRaw = {{ advanced_chat_history|tojson|safe }};
         if (!Array.isArray(currentAdvancedChatHistoryRaw)) {
             currentAdvancedChatHistoryRaw = [];
@@ -232,6 +240,7 @@
                 advancedChatPromptInput.value = '';
                 sendAdvancedChatButton.disabled = true;
                 sendAdvancedChatButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+                showOverlay();
                 
                 fetch("{{ url_for('main.api_submit_advanced_chat') }}", {
                     method: 'POST',
@@ -263,10 +272,12 @@
                     // MODIFICADO: Pasar datos de consumo al renderizar y actualizar totales de sesión
                     renderAdvancedChatMessage("Gemini", data.html_output, false, true, data);
                     updateSessionTotals(data.consumo_sesion);
+                    hideOverlay();
                 })
                 .catch(error => {
                     console.error('Error en el chat avanzado:', error);
                     renderAdvancedChatMessage("Error", error.message || "Ocurrió un error desconocido.", false, false);
+                    hideOverlay();
                 });
             });
         }

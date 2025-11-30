@@ -581,6 +581,17 @@
                 sendChatDetalleButton.disabled = true;
                 sendChatDetalleButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
                 chatHistoryDetalleDiv.scrollTop = chatHistoryDetalleDiv.scrollHeight;
+                (function(){
+                    let overlay = document.getElementById('global-loading-overlay');
+                    if (!overlay){
+                        overlay = document.createElement('div');
+                        overlay.id = 'global-loading-overlay';
+                        overlay.className = 'fixed inset-0 bg-black/20 flex items-center justify-center z-50 hidden';
+                        overlay.innerHTML = '<div class="bg-white rounded-lg shadow-xl p-4 flex items-center gap-3"><i class="fas fa-spinner fa-spin text-2xl text-indigo-600"></i><span class="text-slate-700">Procesando consulta...</span></div>';
+                        document.body.appendChild(overlay);
+                    }
+                    overlay.classList.remove('hidden');
+                })();
                 
                 fetch('/api/detalle_chat', {
                     method: 'POST',
@@ -614,7 +625,9 @@
 
                     // Actualiza los totales de la sesión en la UI
                     updateSessionTotals(data.consumo_sesion);
-
+                    const overlay = document.getElementById('global-loading-overlay');
+                    if (overlay) overlay.classList.add('hidden');
+                    
                     // Ajuste visual: asegurar que el contenedor crezca con el viewport
                     try {
                         chatHistoryDetalleDiv.classList.remove('h-64', 'md:h-[40vh]');
@@ -631,6 +644,8 @@
                     errorMessageDiv.innerHTML = `<p class="inline-block bg-red-100 text-red-700 text-sm rounded-lg px-3 py-2 shadow"><strong>Error:</strong> ${escapeHtml(error.message)}</p>`;
                     chatHistoryDetalleDiv.appendChild(errorMessageDiv);
                     chatHistoryDetalleDiv.scrollTop = chatHistoryDetalleDiv.scrollHeight;
+                    const overlay = document.getElementById('global-loading-overlay');
+                    if (overlay) overlay.classList.add('hidden');
                 });
             });
         }

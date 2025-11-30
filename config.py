@@ -24,6 +24,7 @@ class Config:
     NUM_RELEVANT_CHUNKS_INST = 15 # Fragmentos para índice institucional
     NUM_RELEVANT_CHUNKS_FU = 10  # Fragmentos para índice de seguimientos
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    GEMINI_MODEL_NAME = os.environ.get('GEMINI_MODEL_NAME', 'gemini-3-pro-preview')
     # Zona horaria centralizada para conversiones de tiempo
     TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Santiago')
 
@@ -37,6 +38,21 @@ class Config:
             'input_per_million': 0.30,  # USD
             'output_per_million': 2.50, # USD
             'provider': 'Google'
+        },
+        'gemini-3-pro-preview': {
+            'provider': 'Google',
+            'tiers': [
+                {
+                    'max_prompt_tokens': 200000,
+                    'input_per_million': 2.00,
+                    'output_per_million': 12.00
+                },
+                {
+                    'min_prompt_tokens': 200001,
+                    'input_per_million': 4.00,
+                    'output_per_million': 18.00
+                }
+            ]
         },
         # Ejemplo para un futuro modelo de OpenAI
         'gpt-4o': {

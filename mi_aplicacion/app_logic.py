@@ -786,7 +786,7 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
     api_key = current_app.config.get('GEMINI_API_KEY')
     num_relevant_chunks_inst = int(current_app.config.get('NUM_RELEVANT_CHUNKS_INST', current_app.config.get('NUM_RELEVANT_CHUNKS', 10)))
     num_relevant_chunks_fu = int(current_app.config.get('NUM_RELEVANT_CHUNKS_FU', current_app.config.get('NUM_RELEVANT_CHUNKS', 10)))
-    model_name = 'gemini-2.5-flash' 
+    model_name = current_app.config.get('GEMINI_MODEL_NAME', 'gemini-3-pro-preview') 
 
     def create_error_response(error_message):
         # ... (código interno de create_error_response no cambia) ...
@@ -1124,13 +1124,33 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
             output_tokens = usage_info.candidates_token_count
             total_tokens = usage_info.total_token_count
             
+            cost_input, cost_output, total_cost = 0.0, 0.0, 0.0
             pricing_info = current_app.config.get('MODEL_PRICING', {}).get(model_name, {})
             if pricing_info:
-                input_cost_per_million = pricing_info.get('input_per_million', 0)
-                output_cost_per_million = pricing_info.get('output_per_million', 0)
-                cost_input = (input_tokens / 1_000_000) * input_cost_per_million
-                cost_output = (output_tokens / 1_000_000) * output_cost_per_million
-                total_cost = cost_input + cost_output
+                tiers = pricing_info.get('tiers')
+                if isinstance(tiers, list) and tiers:
+                    # Selección de tier basada en tokens de entrada (prompt)
+                    selected = None
+                    for tier in tiers:
+                        max_t = tier.get('max_prompt_tokens')
+                        min_t = tier.get('min_prompt_tokens')
+                        if max_t is not None and input_tokens <= int(max_t):
+                            selected = tier
+                            break
+                        if min_t is not None and input_tokens >= int(min_t):
+                            selected = tier
+                    if selected:
+                        ipm = float(selected.get('input_per_million', 0))
+                        opm = float(selected.get('output_per_million', 0))
+                        cost_input = (input_tokens / 1_000_000) * ipm
+                        cost_output = (output_tokens / 1_000_000) * opm
+                        total_cost = cost_input + cost_output
+                else:
+                    input_cost_per_million = float(pricing_info.get('input_per_million', 0))
+                    output_cost_per_million = float(pricing_info.get('output_per_million', 0))
+                    cost_input = (input_tokens / 1_000_000) * input_cost_per_million
+                    cost_output = (output_tokens / 1_000_000) * output_cost_per_million
+                    total_cost = cost_input + cost_output
             
             db_path = current_app.config['DATABASE_FILE']
             guardar_consumo_diario(db_path, model_name, input_tokens, output_tokens, total_cost)
@@ -2348,7 +2368,7 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
     try:
         api_key = current_app.config.get('GEMINI_API_KEY')
         genai.configure(api_key=api_key)
-        model_analisis = genai.GenerativeModel('gemini-2.5-flash')
+        model_analisis = genai.GenerativeModel(current_app.config.get('GEMINI_MODEL_NAME', 'gemini-3-pro-preview'))
         
         prompt_analisis_plan = f"""
         Analiza el siguiente "Plan de Intervención" para el {tipo_entidad} '{nombre_entidad}'.
@@ -2435,7 +2455,7 @@ def search_web_for_support_resources(plan_intervencion_markdown, tipo_entidad, n
     # --- FIN: BLOQUE DE PROMPT MODIFICADO ---
     try:
         print("DEBUG: Enviando prompt a Gemini para SIMULAR y sugerir recursos con nuevo formato...") 
-        model_sugerencias = genai.GenerativeModel('gemini-2.5-flash')
+        model_sugerencias = genai.GenerativeModel(current_app.config.get('GEMINI_MODEL_NAME', 'gemini-3-pro-preview'))
         response_sugerencias = model_sugerencias.generate_content(prompt_sugerencia_recursos)
         final_html = response_sugerencias.text.strip()
         
