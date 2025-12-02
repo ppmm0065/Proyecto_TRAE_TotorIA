@@ -24,7 +24,7 @@ class Config:
     NUM_RELEVANT_CHUNKS_INST = 15 # Fragmentos para índice institucional
     NUM_RELEVANT_CHUNKS_FU = 10  # Fragmentos para índice de seguimientos
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-    GEMINI_MODEL_NAME = os.environ.get('GEMINI_MODEL_NAME', 'gemini-3-pro-preview')
+    GEMINI_MODEL_NAME = os.environ.get('GEMINI_MODEL_NAME', 'gemini-2.5-flash')
     # Zona horaria centralizada para conversiones de tiempo
     TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Santiago')
 

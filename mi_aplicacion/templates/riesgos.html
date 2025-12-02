@@ -68,9 +68,9 @@
             <div>
               <h3 class="font-semibold text-slate-900">{{ course }}</h3>
               <p class="text-sm text-slate-500">
-                Alto: <a class="text-rose-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='alto', course=course) }}">{{ data.alto }}</a>
-                · Medio: <a class="text-amber-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='medio', course=course) }}">{{ data.medio }}</a>
-                · Bajo: <a class="text-emerald-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='bajo', course=course) }}">{{ data.bajo }}</a>
+                <a class="text-rose-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='alto', course=course) }}">Alto</a>: <span class="text-rose-600 font-semibold">{{ data.alto }}</span>
+                · <a class="text-amber-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='medio', course=course) }}">Medio</a>: <span class="text-amber-600 font-semibold">{{ data.medio }}</span>
+                · <a class="text-emerald-600 font-semibold hover:underline" href="{{ url_for('main.riesgos_por_curso_nivel', level='bajo', course=course) }}">Bajo</a>: <span class="text-emerald-600 font-semibold">{{ data.bajo }}</span>
               </p>
             </div>
           </div>
