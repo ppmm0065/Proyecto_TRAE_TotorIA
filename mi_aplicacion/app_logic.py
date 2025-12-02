@@ -1082,7 +1082,9 @@ def analyze_data_with_gemini(data_string, user_prompt, vs_inst, vs_followup,
         if not is_direct_chat_query and not is_reporte_360 and not is_plan_intervencion: 
             prompt_parts.append(current_app.config.get('GEMINI_FORMATTING_INSTRUCTIONS', "Formatea tu respuesta claramente en Markdown."))
         elif is_direct_chat_query:
-            pass 
+            prompt_parts.append(
+                "Directriz adicional: al FINAL de tu respuesta añade UNA sola línea con una contra‑pregunta pertinente y accionable, basada en los datos y el contexto disponibles. Formato EXÁCTO (elige uno): '¿Quieres saber más sobre [pregunta]?' o '¿Quieres que analice sobre [pregunta]?'. No añadas texto adicional, ni prefijos, ni líneas extra."
+            ) 
 
         final_prompt_string = "\n".join(filter(None, prompt_parts)) 
 
